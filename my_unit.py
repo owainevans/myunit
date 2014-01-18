@@ -402,6 +402,8 @@ class History:
     
     # default directory for plots, created from parameters
     def defaultDirectory(self):
+        
+        
         name = self.label
         for (param, value) in self.parameters.iteritems():
             name += '_' + param + '=' + str(value)
@@ -409,7 +411,7 @@ class History:
     
     # directory specifies location of plots
     # default format is pdf
-    def plot(self, fmt='pdf', directory=None):
+    def plot(self, fmt='pdf', directory=None,no_histograms=0,no_flat_series=0):
         if directory == None:
             directory = self.defaultDirectory()
         
@@ -417,8 +419,11 @@ class History:
             os.mkdir(directory)
         
         for (name, seriesList) in self.nameToSeries.iteritems():
-            plotSeries(name, self.label, seriesList, self.parameters, fmt, directory)
-            plotHistogram(name, self.label, seriesList, self.parameters, fmt, directory)
+            if len(set(self.nameToSeries[name][0].values))==1:
+                print '%s is flat' % name
+            else:
+                plotSeries(name, self.label, seriesList, self.parameters, fmt, directory)
+            if no_histograms==0: plotHistogram(name, self.label, seriesList, self.parameters, fmt, directory)
         
         print 'plots written to ' + directory
 
