@@ -418,8 +418,9 @@ class History:
         if not os.path.exists(directory):
             os.mkdir(directory)
         
+        # owain: this is a hack, we want to not print 'observes' rather than flat series
         for (name, seriesList) in self.nameToSeries.iteritems():
-            if len(set(self.nameToSeries[name][0].values))==1:
+            if no_flat_series==1 and len(set(self.nameToSeries[name][0].values))==1:
                 print '%s is flat' % name
             else:
                 plotSeries(name, self.label, seriesList, self.parameters, fmt, directory)

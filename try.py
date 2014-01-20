@@ -12,9 +12,10 @@ class Tricky(VentureUnit):
 
 class Gauss(VentureUnit):
     def makeAssumes(self):
-        self.assume("location","(normal 0 50)")
-        self.assume("mu1","(normal location 5)")
-        self.assume("mu2","(normal location 5)")
+        self.assume("location",str(self.parameters['loc']) )
+        self.assume("scale",str(self.parameters['scale']) )
+        self.assume("mu1","(normal location scale)")
+        self.assume("mu2","(normal location scale)")
 
 
         [self.assume(var,"(normal mu1 1.)") for var in ["x1_"+str(i) for i in range(3)] ]
@@ -33,21 +34,17 @@ class Gauss(VentureUnit):
 #history.plot(fmt='png')
 
 
-params = {}
+params = {'loc':[-30,30], 'scale':[.1,1,100] }
+
 
 make_ripl = make_church_prime_ripl
-
-#tricky_instance = Tricky(vmodel,params)
-print 'variable "tricky_instance" was created via "Tricky(vmodel,params)" '
+v = make_ripl()
 
 
-#run_prior = tricky_instance.runConditionedFromPrior(50)
 
-
-#v = make_ripl()
-runner = lambda params : Tricky(v, params).runConditionedFromPrior(sweeps=20, runs=30, verbose=False)
-#histories = produceHistories(params, runner)
-#plotAsymptotics(params, histories, 'sweep_time', aggregate=True)
+runner = lambda params :Gauss(v, params).runConditionedFromPrior(sweeps=20, runs=1, verbose=False)
+histories = produceHistories(params, runner)
+plotAsymptotics(params, histories, 'sweep_time', aggregate=True)
 
 #print 'variable "histories" was created from "histories = produceHistories(params, runner)"'
 
