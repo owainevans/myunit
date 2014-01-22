@@ -1,7 +1,7 @@
 from IPython.core import display
 import numpy as np  
 from my_unit import *
-import os
+import os,time
 
 try:
     from IPython.core.magic import (Magics,register_cell_magic, magics_class, line_magic,
@@ -65,7 +65,14 @@ class MakeFakeRIPL:
         self.direcs.clear(); self.direc_count = 0
         return None
         
-    
+
+
+##########FIXME need to work out how long to sleep    
+def make_ripl():
+    'sleep before making'
+    time.sleep(1)
+    return make_church_prime_ripl()
+
 
 @magics_class
 class VentureMagics(Magics):
@@ -91,8 +98,9 @@ class VentureMagics(Magics):
            [ASSUME coin (beta 1 1)]
            [ASSUME x (flip coin)]'''
 
-
+        
         def format_parts(parts):
+            'format the input string for pretty printing'
             return '[%s]' % ' '.join(parts)
            
         
@@ -124,7 +132,11 @@ class VentureMagics(Magics):
 
     @cell_magic
     def unit(self, line, cell):
-
+        '''Given Venchurch input transform into 'ripl.assume("var"..'
+        and then create a class for the model by inheriting from my_unit.py.
+        NOTE: won't work on form [OBS (+ var 1) 5], only on
+        form [OBS var 5]. For the former case, need to just use Venture.'''
+        
         py_lines,py_parts = self.cell_to_venture(cell)
 
         py_lines = [ py_line.replace('self.v.','self.') for py_line in py_lines]
@@ -140,7 +152,18 @@ class VentureMagics(Magics):
         ipy_ripl.clear()
         os.chdir('/home/owainevans/myunit/')
         model_instance = MyModelClass(ipy_ripl,{})
+
+
+        try:
+            no_ripls = int(line)
+            print 'using %i explanations' % int(line)
+        except:
+            no_ripls=5
+
+        ripls = [make_ripl() for i in range(no_ripls)] 
+        models = [MyModelClass(ripl,{}) for ripl in ripls]
         
+
 
         if line.lower().strip().find('run') > -1:
 
@@ -164,7 +187,7 @@ class VentureMagics(Magics):
 
 
 
-        return model_instance
+        return models
 
 
 
@@ -297,24 +320,12 @@ def load_ipython_extension(ip):
     """Load the extension in IPython."""
     ip.register_magics(VentureMagics)
 
-try:
-    ip = get_ipython()
-    ip.register_magics(VentureMagics)
-    ip_register_success = 1
+# try:
+#     ip = get_ipython()
+#     ip.register_magics(VentureMagics)
+#     ip_register_success = 1
 
-except:
-    print 'ip=get_ipython() didnt run'   
+# except:
+#     print 'ip=get_ipython() didnt run'   
 
-if found_venture_ripl==1: print 'VentureMagics is active: see %vl? for docs'
-
-def clean(p_line):
-    st = p_line
-    arg = st.find( "(" )
-    two_end = st.find( "', ",arg)
-    one_end = st.rfind( ")",arg)
-    if two_end > -1:
-        return st[arg+2:two_end]
-    elif one_end > -1:
-        return st[arg+2:one_end]
-    else:
-        return None
+# if found_venture_ripl==1: print 'VentureMagics is active: see %vl? for docs'
