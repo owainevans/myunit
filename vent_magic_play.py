@@ -41,37 +41,27 @@ class MakeFakeRIPL:
         return None
         
     def assume(self,variable,exp):
-        #print 'ASSUME '+str(variable)+' '+str(exp)
         self.add(('assume',[variable,exp] ) )
         return variable,exp
     
     def observe(self,exp1,exp2):
-        #print 'obs '+ str(exp1)+'   '+str(exp2)
         self.add(('observe',[exp1,exp2] ) )
         return exp1,exp2
         
     def predict(self,exp):
-        #print 'pred '+ str(exp)
         self.add(('predict',[exp] ) )
         return exp
         
     def infer(self,exp):
-        #print 'inf '+ str(exp)
         self.add(('infer',[exp] ) )
         return exp
         
     def clear(self):
-        #print 'clear'
         self.direcs.clear(); self.direc_count = 0
         return None
         
 
 
-##########FIXME need to work out how long to sleep    
-def make_ripl():
-    'sleep before making'
-    time.sleep(1)
-    return make_church_prime_ripl()
 
 
 @magics_class
@@ -98,7 +88,6 @@ class VentureMagics(Magics):
            [ASSUME coin (beta 1 1)]
            [ASSUME x (flip coin)]'''
 
-        
         def format_parts(parts):
             'format the input string for pretty printing'
             return '[%s]' % ' '.join(parts)
@@ -130,6 +119,13 @@ class VentureMagics(Magics):
             return vouts
     
 
+    ##########FIXME need to work out how long to sleep    
+    def make_ripl(self):
+        'sleep before making'
+        time.sleep(1)
+        return make_church_prime_ripl()
+
+
     @cell_magic
     def unit(self, line, cell):
         '''Given Venchurch input transform into 'ripl.assume("var"..'
@@ -149,42 +145,33 @@ class VentureMagics(Magics):
                 [eval(py_line) for py_line in py_lines if py_line[5]=='o']
 
 
-        ipy_ripl.clear()
-        os.chdir('/home/owainevans/myunit/')
-        model_instance = MyModelClass(ipy_ripl,{})
+       # ipy_ripl.clear(); # os.chdir('/home/owainevans/myunit/')
+       # model_instance = MyModelClass(ipy_ripl,{})
 
 
         try:
             no_ripls = int(line)
             print 'using %i explanations' % int(line)
         except:
-            no_ripls=5
-
-        ripls = [make_ripl() for i in range(no_ripls)] 
+            print 'returning single model on ipy_ripl'
+            return MyModelClass(ipy_ripl,{})
+       
+        
+        ripls = [self.make_ripl() for i in range(no_ripls)] 
         models = [MyModelClass(ripl,{}) for ripl in ripls]
         
 
 
-        if line.lower().strip().find('run') > -1:
+        # if line.lower().strip().find('run') > -1:
+        #     print 'plot inference based on observes'
+        #     run_cond_hist = model_instance.runFromConditional(200,runs=4)
+        #     run_cond_hist.plot(no_histograms=1,no_flat_series=1)
 
-            print 'plot inference based on observes'
-            run_cond_hist = model_instance.runFromConditional(200,runs=4)
-            run_cond_hist.plot(no_histograms=1,no_flat_series=1)
-
-
-        if line.lower().strip().find('kl') > -1:
-            sweeps,samples,r = eval(str(line[line.find(':')+1:]))
-            print 'plot KL'
-            (sampledHistory, inferredHistory, klHistory) = model_instance.computeJointKL(sweeps,samples,runs=r)
-            print 'sampledHistory:'
-            sampledHistory.plot(no_histograms=1,no_flat_series=1)
-            print 'inferredHistory:'
-            inferredHistory.plot(no_histograms=1,no_flat_series=1)
-            print 'klH:'
-            klHistory.plot(no_histograms=1,no_flat_series=1)
-
-        
-
+        # if line.lower().strip().find('kl') > -1:
+        #     sweeps,samples,r = eval(str(line[line.find(':')+1:]))
+        #     (sampledHistory, inferredHistory, klHistory) = model_instance.computeJointKL(sweeps,samples,runs=r)
+        #     print 'klH:'
+        #     klHistory.plot(no_histograms=1,no_flat_series=1)
 
 
         return models
