@@ -1,7 +1,7 @@
 from IPython.core import display
 import numpy as np  
 from my_unit import *
-import os,time
+import os,time,multiprocessing
 
 try:
     from IPython.core.magic import (Magics,register_cell_magic, magics_class, line_magic,
@@ -141,7 +141,7 @@ class VentureMagics(Magics):
             def makeObserves(self):
                 [eval(py_line) for py_line in py_lines if py_line[5]=='o']
 
-
+        
        # ipy_ripl.clear(); # os.chdir('/home/owainevans/myunit/')
        # model_instance = MyModelClass(ipy_ripl,{})
 
