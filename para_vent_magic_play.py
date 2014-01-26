@@ -27,12 +27,21 @@ def build_class(py_lines):
         def makeObserves(self):
             [eval(py_line) for py_line in py_lines if py_line[5]=='o']
 
+
+            # Example unit input from LDA
+            # D = self.parameters['documents']
+            # N = self.parameters['words_per_document']
+        
+            # for doc in xrange(D):
+            #     for pos in xrange(N):
+            #         self.observe("(get-word %d %d)" % (doc, pos), 0)
+
     return MyModelClass
 
     
-def worker(out_q,ModelClass,ripl,params={},no_sweeps,infer_msg,plot_msg):
+def worker(out_q,ModelClass,ripl,params,no_sweeps,infer_msg,plot_msg):
     print 'Starting:', multiprocessing.current_process().name
-
+    
     unit_model = ModelClass(ripl,params)
     if infer_msg=='runFromConditional':
         hist = unit_model.runFromConditional(sweeps=no_sweeps,runs=1)
@@ -56,16 +65,21 @@ def multi_ripls(no_ripls,ModelClass,no_sweeps_list,infer_msg,plot_msg):
     # or the ipython magics, shouldn't itself be a problemo. 
 
     assert(len(no_sweeps_list)==no_ripls)
+    assert(isinstance(infer_msg,str))
+    test_model = ModelClass(make_ripl(),{})
+    print 'assumes:',test_model.assumes,'\n','observes:',test_model.observes
+    assert(test_model.assumes != [])
+    
     nprocs= no_ripls; procs = []
-    out_q = multiprocessing.Queue(maxsize=no_ripls)
+    out_q = multiprocessing.Queue() # could add max-size
     hists = []
 
     ripls = [make_ripl() for i in range(no_ripls)] 
 
     for i in range(nprocs):
-        mytarget=worker
-        myargs = (out_q, ModelClass, ripls[i],
-                params={},no_sweeps_list[i],infer_msg,plot_msg)
+        mytarget = worker
+        myargs=(out_q, ModelClass, ripls[i],{},
+                no_sweeps_list[i],infer_msg,plot_msg)
 
         p = multiprocessing.Process(target=mytarget,args=myargs)
         
@@ -138,10 +152,10 @@ def cell_to_venture(s,terse=0):
 
         
 @magics_class
-class VentureMagics(Magics):
+class ParaMagics(Magics):
 
     def __init__(self, shell):
-        super(VentureMagics, self).__init__(shell)
+        super(ParaMagics, self).__init__(shell)
 
     @line_cell_magic
     def vl2(self, line, cell=None):
@@ -189,10 +203,13 @@ class VentureMagics(Magics):
         print 'using %i explanations' % no_ripls
 
         # call multiprocess inference and plotting on the ripls
-        no_sweeps_list = [50] * no_ripls
+        no_sweeps_list = [50] + ( [60] * (no_ripls-1) )
         infer_msg = 'runFromConditional'                                        
         plot_msg = None                                
-        hists = multi_ripls(no_ripls,build_class(py_lines),no_sweeps,infer_msg,plot_msg)
+        hists = multi_ripls(no_ripls,build_class(py_lines),no_sweeps_list,infer_msg,plot_msg)
+        for h in hists:
+            try: h.label = hists[0].label
+            except: print 'Error calling hist.lable'
         return hists
                             
 
@@ -204,11 +221,14 @@ class VentureMagics(Magics):
     ## for ipythonNB, remove function defintion and uncomment following two lines
 def load_ipython_extension(ip):
     """Load the extension in IPython."""
-    ip.register_magics(VentureMagics)
-    print 'loaded VentureMagics'
-# try:
-#     ip = get_ipython()
-#     ip.register_magics(VentureMagics)
+    ip.register_magics(ParaMagics)
+    print 'loaded ParaMagics'
+try:
+    ip = get_ipython()
+    load_ipython_extension(ip)
+except:
+    print 'failed to load'
+    #     ip.register_magics(VentureMagics)
 #     ip_register_success = 1
 
 # except:
