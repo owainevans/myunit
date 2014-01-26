@@ -3,12 +3,8 @@ import numpy as np
 from my_unit import *
 import os,time,multiprocessing
 
-try:
-    from IPython.core.magic import (Magics,register_cell_magic, magics_class, line_magic,
-                                    cell_magic, line_cell_magic)
-except:
-    from IPython.core.magic import (register_cell_magic, magics_class, line_magic,
-                                    cell_magic, line_cell_magic)                           
+from IPython.core.magic import (Magics,register_cell_magic, magics_class, line_magic,cell_magic, line_cell_magic)
+
 found_venture_ripl = 0
 
 try: 
@@ -22,44 +18,6 @@ except:
     except:
         print 'failed to make venture ripl'
         
-class MakeFakeRIPL:
-    def __init__(self):
-        self.id = np.random.randint(10**4)
-        self.direcs = {'id':self.id}
-        self.direc_count = 0
-        
-    def add(self,directive):
-        tag,arglist = directive
-        self.direcs[tag+str(self.direc_count)] = arglist
-        self.direc_count += 1
-        return None
-        
-    def vreport(self):
-        print 'venture ripl id: %i' % self.id; print self.direcs
-        return None
-        
-    def assume(self,variable,exp):
-        self.add(('assume',[variable,exp] ) )
-        return variable,exp
-    
-    def observe(self,exp1,exp2):
-        self.add(('observe',[exp1,exp2] ) )
-        return exp1,exp2
-        
-    def predict(self,exp):
-        self.add(('predict',[exp] ) )
-        return exp
-        
-    def infer(self,exp):
-        self.add(('infer',[exp] ) )
-        return exp
-        
-    def clear(self):
-        self.direcs.clear(); self.direc_count = 0
-        return None
-        
-
-
 
 @magics_class
 class VentureMagics(Magics):
@@ -88,7 +46,7 @@ class VentureMagics(Magics):
         def format_parts(parts):
             'format the input string for pretty printing'
             return '[%s]' % ' '.join(parts)
-           
+        
         
         ## LINE MAGIC
         if cell is None:
@@ -116,19 +74,26 @@ class VentureMagics(Magics):
             return vouts
     
 
+
     #### FIXME need to work out how long to sleep    
-    def make_ripl(self):
+    def makeRipl(self):
         'sleep before making'
         time.sleep(1)
         return make_church_prime_ripl()
 
+    def worker(self,out_q,ModelClass,ripl,params={},infer_msg,plot_msg):
+        print 'Starting:', multiprocessing.current_process().name
+        
+        unit_model = ModelClass(ripl,params)
+        if infer_msg=='runFromConditional':
+            hist = unit_model.runFromConditional(sweeps=no_sweeps,runs=1)
+            out_q.put(hist)
+        print 'Exiting:', multiprocessing.current_process().name 
+
 
     @cell_magic
-    def unit(self, line, cell):
-        '''Given Venchurch input transform into 'ripl.assume("var"..'
-        and then create a class for the model by inheriting from my_unit.py.
-        NOTE: won't work on form [OBS (+ var 1) 5], only on
-        form [OBS var 5]. For the former case, need to just use Venture.'''
+    def p(self, line, cell):
+        'need to fix OBS issue'
         
         py_lines,py_parts = self.cell_to_venture(cell)
 
@@ -141,34 +106,19 @@ class VentureMagics(Magics):
             def makeObserves(self):
                 [eval(py_line) for py_line in py_lines if py_line[5]=='o']
 
+        try: no_ripls = int(line)
+        except: no_ripls = 1
+
+        print 'using %i explanations' % no_ripls
+
         
-       # ipy_ripl.clear(); # os.chdir('/home/owainevans/myunit/')
-       # model_instance = MyModelClass(ipy_ripl,{})
+        if 
 
 
-        try:
-            no_ripls = int(line)
-            print 'using %i explanations' % int(line)
-        except:
-            print 'returning single model on ipy_ripl'
-            return MyModelClass(ipy_ripl,{})
-       
-        
-        ripls = [self.make_ripl() for i in range(no_ripls)] 
-        models = [MyModelClass(ripl,{}) for ripl in ripls]
-        
 
 
-        # if line.lower().strip().find('run') > -1:
-        #     print 'plot inference based on observes'
-        #     run_cond_hist = model_instance.runFromConditional(200,runs=4)
-        #     run_cond_hist.plot(no_histograms=1,no_flat_series=1)
 
-        # if line.lower().strip().find('kl') > -1:
-        #     sweeps,samples,r = eval(str(line[line.find(':')+1:]))
-        #     (sampledHistory, inferredHistory, klHistory) = model_instance.computeJointKL(sweeps,samples,runs=r)
-        #     print 'klH:'
-        #     klHistory.plot(no_histograms=1,no_flat_series=1)
+
 
 
         return models
@@ -178,68 +128,6 @@ class VentureMagics(Magics):
         
     
     
-
-    @line_cell_magic
-    def vp(self, line, cell=None):
-        
-        if cell is None:
-            
-            py_lines = self.cell_to_venture(line)
-            fake_outs = eval(py_lines[0])
-            
-            if self.vent_state == 'vxx':
-                vouts = eval(py_lines[0].replace('self.v.','self.vxx.'))
-            
-            if self.vent_state == 'v2':
-                vouts = eval(py_lines[0].replace('self.v.','self.v2.'))
-                
-            print vouts  # just to see venture output on loops
-            return py_lines[0].replace('self.v.','vxx.'), vouts
-            
-            
-        else:
-            return self.cell_vp(line,cell)
-            
-                
-    @cell_magic
-    def cell_vp(self, line, cell):
-        
-        terse=0
-        if line:
-            if line.lower().strip().find('as') > -1: terse=1 
-        
-        # code in v.assume py form
-        py_lines = self.cell_to_venture(cell,terse) 
-        
-        fake_outs = [];
-        for py_line in py_lines:
-            fake_outs.append( eval(py_line) )
-        
-        if self.vent_state == 'vxx':
-            vxx_outs = []
-            for py_line in py_lines:
-                vxx_outs.append( eval(py_line.replace('self.v.','self.vxx.')) )
-            vouts = vxx_outs  
-        
-        if self.vent_state == 'v2':
-            v2_outs = []
-            for py_line in py_lines:
-                v2_outs.append( eval(py_line.replace('self.v.','self.v2.')) )  
-            vouts = v2_outs                        
-        
-        # output the converted lines that are fed to python        
-        py_lines_clean = [py_line.replace('self.v.','vxx.') for py_line in py_lines]
-       
-       #verbose mode (extra output)
-        if line.lower().strip() == '-v':
-            return 'cell:',cell,'\n py_lines:', py_lines,'\n fake_outs:',fake_outs,'\n vouts:',vouts                                                         
-        
-        #non_verbose mode
-        else:
-            return py_lines_clean,vouts
-        
-                                                               
-                                                                                                                                                            
                                                                                                                                                                                                                                                             
     def remove_white(self,s):
         t=s.replace('  ',' ')
