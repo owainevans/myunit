@@ -17,14 +17,19 @@ def make_ripl():
     return make_church_prime_ripl()
 
 
-def build_class(py_lines):
+def build_class(py_lines,rand=False):
     'takes in lines of ripl.assume(...) code and builds class for model'
     
     class MyModelClass(VentureUnit):
+        ra = lambda: np.random.randint(100); beta=lambda:np.random.beta(1,1)
+
         def makeAssumes(self):
+            ## FIXME hack to get around fixed seed for cxx
+            self.assume('a','(beta 1 '+str(np.random.randint(100)) + ')')
             [eval(py_line) for py_line in py_lines if py_line[5]=='a']
 
         def makeObserves(self):
+            [self.observe("(normal a 1)","1") for i in range(5) ]
             [eval(py_line) for py_line in py_lines if py_line[5]=='o']
 
 
@@ -41,8 +46,9 @@ def build_class(py_lines):
     
 def worker(out_q,ModelClass,ripl,params,no_sweeps,infer_msg,plot_msg):
     print 'Starting:', multiprocessing.current_process().name
-    
+    print '--------------'
     unit_model = ModelClass(ripl,params)
+    print unit_model.assumes
     if infer_msg=='runFromConditional':
         hist = unit_model.runFromConditional(sweeps=no_sweeps,runs=1)
         out_q.put(hist)
@@ -50,7 +56,7 @@ def worker(out_q,ModelClass,ripl,params,no_sweeps,infer_msg,plot_msg):
 
 
 
-def multi_ripls(no_ripls,ModelClass,no_sweeps_list,infer_msg,plot_msg):
+def multi_ripls(no_ripls,ModelClass_list,no_sweeps_list,infer_msg,plot_msg):
 
     # Parent code that runs the worker processes
     # do i need 'name'='main'?. we just run the script. worry that 
@@ -66,19 +72,20 @@ def multi_ripls(no_ripls,ModelClass,no_sweeps_list,infer_msg,plot_msg):
 
     assert(len(no_sweeps_list)==no_ripls)
     assert(isinstance(infer_msg,str))
-    test_model = ModelClass(make_ripl(),{})
-    print 'assumes:',test_model.assumes,'\n','observes:',test_model.observes
-    assert(test_model.assumes != [])
+    for mc in ModelClass_list:
+        test_model = mc(make_ripl(),{})
+        print 'assumes:',test_model.assumes,'\n','observes:',test_model.observes
+        assert(test_model.assumes != [])
     
     nprocs= no_ripls; procs = []
     out_q = multiprocessing.Queue() # could add max-size
     hists = []
-
-    ripls = [make_ripl() for i in range(no_ripls)] 
+    ripls = [make_ripl() for i in range(no_ripls)]
+  
 
     for i in range(nprocs):
         mytarget = worker
-        myargs=(out_q, ModelClass, ripls[i],{},
+        myargs=(out_q, ModelClass_list[i], ripls[i],{},
                 no_sweeps_list[i],infer_msg,plot_msg)
 
         p = multiprocessing.Process(target=mytarget,args=myargs)
@@ -94,12 +101,13 @@ def multi_ripls(no_ripls,ModelClass,no_sweeps_list,infer_msg,plot_msg):
                                         
     return hists
 
-                                              
+
+    
+## Utility functions for pulling out tags                                          ## FIXME, all we need is tags and so this could be much shorter                                            
 def remove_white(s):
     t=s.replace('  ',' ')
     return s if s==t else remove_white(t)
 
-## FIXME, all we need is tags and so this could be much shorter                                        
 def cell_to_venture(s,terse=0):
     """Converts vchurch to python self.v.assume (OBSERVE is broken)"""
     s = str(s)
@@ -198,18 +206,22 @@ class ParaMagics(Magics):
         py_lines = [ py_line.replace('self.v.','self.') for py_line in py_lines]
 
         # Use line input to determine no_ripls
-        try: no_ripls = int(line)
-        except: no_ripls = 1
+        try:
+            no_ripls,no_sweeps = map(int,str(line).split(','))
+        except: no_ripls, no_sweeps = 1,100
         print 'using %i explanations' % no_ripls
 
         # call multiprocess inference and plotting on the ripls
-        no_sweeps_list = [50] + ( [60] * (no_ripls-1) )
+        no_sweeps_list = [no_sweeps]*no_ripls
         infer_msg = 'runFromConditional'                                        
-        plot_msg = None                                
-        hists = multi_ripls(no_ripls,build_class(py_lines),no_sweeps_list,infer_msg,plot_msg)
+        plot_msg = None
+        ModelClass_list = [build_class(py_lines,rand=True) for i in range(no_ripls)]
+
+        hists = multi_ripls(no_ripls, ModelClass_list,
+                            no_sweeps_list,infer_msg,plot_msg)
         for h in hists:
             try: h.label = hists[0].label
-            except: print 'Error calling hist.lable'
+            except: print 'Error calling hist.label'
         return hists
                             
 
@@ -231,7 +243,3 @@ except:
     #     ip.register_magics(VentureMagics)
 #     ip_register_success = 1
 
-# except:
-#     print 'ip=get_ipython() didnt run'   
-
-# if found_venture_ripl==1: print 'VentureMagics is active: see %vl? for docs'
