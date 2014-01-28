@@ -25,11 +25,11 @@ def build_class(py_lines,rand=False):
 
         def makeAssumes(self):
             ## FIXME hack to get around fixed seed for cxx
-            self.assume('a','(beta 1 '+str(np.random.randint(100)) + ')')
+            #self.assume('a','(beta 1 '+str(np.random.randint(100)) + ')')
             [eval(py_line) for py_line in py_lines if py_line[5]=='a']
 
         def makeObserves(self):
-            [self.observe("(normal a 1)","1") for i in range(5) ]
+           # [self.observe("(normal a 1)","1") for i in range(5) ]
             [eval(py_line) for py_line in py_lines if py_line[5]=='o']
 
 
@@ -43,7 +43,131 @@ def build_class(py_lines,rand=False):
 
     return MyModelClass
 
+# plan:
+# you get a ripl from the entered program. from this you can get the dire
+# need to be careful about the namespace issues.
+# the workers get a ripl and a dict of directives. they run the directives
+# (which just involves running methods on the ripl and using functions
+# like build_py_dire that they gotta have in their namespace. 
+#  then they run infer,logscore, report from their ripl.
+
+# other crucial thing is the seediness issue. we can generate seeds for 
+# each worker from the parent (so easy to lookup and change). workers
+# then will have different seeds for each run (if they have multiple runs)
+# which are their base seed + the run_id. 
+
+## storage. worker is given an instruction for how much to store, e.g.
+## 100 sweeps and 4 probes (evenly spaced). worker must store logscore
+## and all the labeled variables (possibly ignoring observes for speed).
+# e.g. 
+##   could loop over the directive_list, then v.report(item['label'])
+#   (possibly filtering out observes)
+#   something like
+history = { label:(vals_list,(probes,total samples) }
+or      = { series={label:vals}, samples, probes, random_seed, worker_id }
+
+# need to think about parallelizing to clusters and doing plots across
+# these objects. the plots need to know the no-samples and probes, and 
+# so some need to include those with every series (mb). 
+# 
+
+
+## load_program with %v onto ipy ripl
+v=ipy_ripl()
+no_samples = 100
+no_probes = 5 # 0,25,50,75,100
+# could let the input be a range, which we use for seeds
+workers_range = (1,30)
+nprocs = 30 # what's plausible? would like to be able to add
+# more in an interactive way, if approx not good enough for us
+# would want to add more with a different seed. so we might
+# want to have an ordering for each worker, with a corresponding seed
+# so that after doing 30, we could easily do another 20 new chains
+
+
+# want to return snapshots from each worker at the probes
+# so want a set of vals at each stage and then to plot posterior estimate
+
+no_ripls = 4
+ripls = [make_church_prime_ripl() for i in range(no_ripls)]
+
+# note, want possibility of varying model for different workers
+directives_list = [v.list_directives()] * no_ripls
+
+np.random.seed(1000)
+# would restrict rhs to workers_range above
+seeds = np.random.randint(10**9,size = no_ripls)
+
+worker_names = ['w'+str(i)+'_'+str(seeds[i]) for i in range(len(seeds) ) ]
+
+# q = Queue(size)
+
+for i in range(no_procs):
+    # mk_worker( ripls[i],directives_list[i],seeds[i],worker_names[i],
+    #            q, no_samples,no_probes,infer_msg,plot_msg )
     
+    
+
+
+
+def p_worker(ripl,di_list,seed,name,q,no_samples,no_probes,infer_msg,plot_msg):
+    ripl.set_seed(seed)
+
+    shots = {'worker_name'=name,
+             'no_samples':no_samples,'no_probes':no_probes, #infer,plot,seed}
+             'snapshots'=[] }
+    snapshot = ( {labels:values}, no_samples, no_probes, sample_number )
+
+    
+        
+    r.assume(blah)
+    r.observe(blah)
+
+    for i in no_samples/no_probes:
+        infer(k)
+        { label:v.report(label) for label in directives.keys() }
+         + logscore
+
+def build_py_directive(ripl,d):
+    # add label if lacking one
+    if not 'label' in d:
+        if d['instruction']=='assume':
+            d['label'] = d['symbol']
+        elif d['instruction']=='observe':
+            d['label'] = 'obs_'+d['directive_id']
+        elif d['instruction']=='predict':
+            d['label'] = 'pre_'+d['directive_id']
+
+    if d['instruction']=='assume':
+        ripl.assume( d['symbol'], build_exp(d['expression']), label=d['label'] )
+    elif d['instruction']=='observe':
+        ripl.observe( build_exp(d['expression']), label=d['label'] )
+    elif d['instruction']=='predict':
+        ripl.predict( build_exp(d['expression']), label=d['label'] )
+    
+    
+def build_exp(exp):
+    if type(exp)==str:
+        return exp
+    elif type(exp)==dict:
+        return str(exp['value'])
+    else:
+        return '('+str(exp[0])+' ' + ' '.join(map(build_exp,exp[1:])) + ')'
+
+## test
+v = make_church_prime_ripl()
+%v [assume xy ( beta 1   1)]
+%v [observe (normal xy 1) 5 ]
+%v [predict (beta xy (+ 1 5) ) ]
+v2 = make_church_prime_ripl()
+for d in v.list_directives():
+    build_py_directive(v2,d)
+print v.list_directives()
+print v2.list_directives()
+        
+
+
+
 def worker(out_q,ModelClass,ripl,params,no_sweeps,infer_msg,plot_msg):
     print 'Starting:', multiprocessing.current_process().name
     print '--------------'
@@ -67,25 +191,33 @@ def multi_ripls(no_ripls,ModelClass_list,no_sweeps_list,infer_msg,plot_msg):
     # we would get if we ran whole module. but here the code that generates
     # the workers is not in the global env of script. (we don't want the 
     # workers to run the ipython loading code, however, and so need to 
-    # watch out for that ... but their having multi_ripls in namespace
+ owain   # watch out for that ... but their having multi_ripls in namespace
     # or the ipython magics, shouldn't itself be a problemo. 
 
     assert(len(no_sweeps_list)==no_ripls)
     assert(isinstance(infer_msg,str))
-    for mc in ModelClass_list:
-        test_model = mc(make_ripl(),{})
-        print 'assumes:',test_model.assumes,'\n','observes:',test_model.observes
-        assert(test_model.assumes != [])
+    # for mc in ModelClass_list:
+    #     test_model = mc(make_ripl(),{})
+    #     print 'assumes:',test_model.assumes,'\n','observes:',test_model.observes
+    #     assert(test_model.assumes != [])
     
     nprocs= no_ripls; procs = []
     out_q = multiprocessing.Queue() # could add max-size
     hists = []
     ripls = [make_ripl() for i in range(no_ripls)]
+    # make seeds for each ripl distinct
+    np.random.seed(1000)
+    seeds = map(int, np.random.randint(10**8,size=no_ripls))
+    [ripl.set_seed(seed) for ripl,seed in zip(ripls,seeds) ]
+    print seeds
+    print [ripl.predict('(beta 1 1)') for ripl in ripls]
+    params = [ {'venture_random_seed':seed} for seed in seeds ]
+    print params
   
 
     for i in range(nprocs):
         mytarget = worker
-        myargs=(out_q, ModelClass_list[i], ripls[i],{},
+        myargs=(out_q, ModelClass_list[i], ripls[i],params[i],
                 no_sweeps_list[i],infer_msg,plot_msg)
 
         p = multiprocessing.Process(target=mytarget,args=myargs)

@@ -255,7 +255,7 @@ class VentureUnit:
         for run in range(runs):
             if verbose:
                 print "Starting run " + str(run) + " of " + str(runs)
-            
+            # set seed to seed + runid
             self.ripl.clear()
         
             assumeToDirective = {}
