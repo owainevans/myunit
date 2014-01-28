@@ -108,8 +108,6 @@ for i in range(no_procs):
     
     
 
-
-
 def p_worker(ripl,di_list,seed,name,q,no_samples,no_probes,infer_msg,plot_msg):
     ripl.set_seed(seed)
 

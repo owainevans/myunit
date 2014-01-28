@@ -1,10 +1,58 @@
 from venture.shortcuts import *
+import numpy as np
+import multiprocessing
+
+## LATEST VERSION
+
+# plan:
+# you get a ripl from the entered program. from this you can get the dire
+# need to be careful about the namespace issues.
+# the workers get a ripl and a dict of directives. they run the directives
+# (which just involves running methods on the ripl and using functions
+# like build_py_dire that they gotta have in their namespace. 
+#  then they run infer,logscore, report from their ripl.
+
+# other crucial thing is the seediness issue. we can generate seeds for 
+# each worker from the parent (so easy to lookup and change). workers
+# then will have different seeds for each run (if they have multiple runs)
+# which are their base seed + the run_id. 
+
+## storage. worker is given an instruction for how much to store, e.g.
+## 100 sweeps and 4 probes (evenly spaced). worker must store logscore
+## and all the labeled variables (possibly ignoring observes for speed).
+# e.g. 
+##   could loop over the directive_list, then v.report(item['label'])
+#   (possibly filtering out observes)
+#   something like
+#history = { label:(vals_list,(probes,total samples) }
+#or      = { series={label:vals}, samples, probes, random_seed, worker_id }
+
+# need to think about parallelizing to clusters and doing plots across
+# these objects. the plots need to know the no-samples and probes, and 
+# so some need to include those with every series (mb). 
+# 
 
 
+## load_program with %v onto ipy ripl
+
+# could let the input be a range, which we use for seeds
+workers_range = (1,30)
+nprocs = 30 # what's plausible? would like to be able to add
+# more in an interactive way, if approx not good enough for us
+# would want to add more with a different seed. so we might
+# want to have an ordering for each worker, with a corresponding seed
+# so that after doing 30, we could easily do another 20 new chains
 
 
-def build_py_directive(ripl,d):
-    # add label if lacking one
+# want to return snapshots from each worker at the probes
+# so want a set of vals at each stage and then to plot posterior estimate
+
+
+def run_py_directive(ripl,d):
+    '''Takes ripl and directive, labels directive (if no label),
+    runs directive on ripl'''
+    
+    # add labels
     if not 'label' in d:
         if d['instruction']=='assume':
             d['label'] = d['symbol']
@@ -23,6 +71,7 @@ def build_py_directive(ripl,d):
     
     
 def build_exp(exp):
+    'Take expression from directive_list and build the Lisp string'
     if type(exp)==str:
         return exp
     elif type(exp)==dict:
@@ -30,17 +79,132 @@ def build_exp(exp):
     else:
         return '('+str(exp[0])+' ' + ' '.join(map(build_exp,exp[1:])) + ')'
 
-## test
-%v [clear]
-%v [assume xy ( beta 1   1)]
-%v [observe (normal xy 1) 5 ]
-%v [predict (beta xy (+ 1 5) ) ]
-v = ipy_ripl
-v2 = make_church_prime_ripl()
-for d in v.list_directives():
-    build_py_directive(v2,d)
 
-for i,d in enumerate(v.list_directives()):
-    print d
-    print v2.list_directives()[i]
-    print '-------------\n'
+def multi_ripls(directives_list,ripls_range,no_transitions,no_probes,infer_msg,plot_msg):
+    '''creates ripls, directive_lists, seeds, worker names.
+    creates a queue. calls workers on ripls. they produce the desired
+    snapshots and put them on the queue. can also have them produce plots.'''
+    
+    no_ripls = ripls_range[1] - ripls_range[0]
+    ripls = [make_church_prime_ripl() for i in range(no_ripls)]
+
+    # could vary the directives, but for now they are same for all
+    directives_lists = [directives_list] * no_ripls
+
+    # This seed should stay fixed in order to reproduce results
+    np.random.seed(1)
+    seeds = np.random.randint(10**9,size = ripls_range[1])[ripls_range[0]:]
+    seeds = map(int,seeds)
+    assert len(seeds)==no_ripls
+
+    worker_names = ['w'+str(i)+'_'+str(seeds[i]) for i in range(len(seeds) ) ]
+
+    q = multiprocessing.Queue()
+
+    #for i in range(no_ripls):
+
+    return ripls,directives_lists,seeds,worker_names
+
+
+
+def p_worker(ripl,di_list,seed,name,q,no_transitions,no_probes,infer_msg,plot_msg):
+    '''1. Set ripl seed with seed from parent process.
+       2. Run labeled directives from di_list on ripl.
+       3. Create output dict of parameters and snapshot for each labeled directive
+          as well as logscore.
+       4. Run ripl.infer() till no_transitions, storing values in snapshots
+          at probe points (determine by no_probes).
+       5. Could add to Queue either at every probe point, or (current setup)
+          after finishing no_transitions.
+       6. Infer_msg could be used to select specific variables to record or
+          to use non-default infer instructions.'''
+
+    
+    ripl.set_seed(seed)
+
+    # run directives from di_list on ripl, adding labels to unlabeled directives
+    # replace di_list with the new, labeled directives
+    for di in di_list:
+        run_py_directive(ripl,di)
+    di_list = ripl.list_directives()
+    print 'new di_list',di_list
+
+    
+    # create output dict
+    out_dict = {'worker_name':name,'no_transitions':no_transitions,
+                'no_probes':no_probes, 'infer_msg':infer_msg,
+                'plot_msg':plot_msg, 
+                'labelToSnapshot':{} }
+    
+    # Find points at which to record values
+    step = int(round (float(no_transitions+1) / no_probes) )
+    probes = range(0,no_transitions+1,step)
+    print step, probes
+
+    for di in di_list:
+        label = di['label']
+        snapshot = { 'series': [0] * no_probes,
+                     'probes':probes, 'no_transitions':no_transitions,
+                     'seed':seed }
+        out_dict['labelToSnapshot'][label] = snapshot
+
+  
+    for count in range(no_probes):
+        ripl.infer(step)   # add infer instructions based on infer_msg
+
+        # update each series (could filter out observes)
+        for di in di_list:
+            label = di['label']
+            value = ripl.report(label)
+            series = out_dict['labelToSnapshot'][label]['series']
+            series[count] = value
+            # ADD LOGSCORE
+
+    return di_list,out_dict
+
+## Testing
+%v [clear]
+%v [assume mu (normal 0 20)]
+%v [observe (normal mu 1) 5 ]
+%v [observe (normal mu 0.6) 5 ]
+%v [predict (normal mu (+ 1 2)) ]
+
+di_list = ipy_ripl.list_directives()
+ripls_range = (0,5); no_transitions = 50
+no_probes = 5;     infer_msg = ''; plot_msg = '';
+
+
+out = multi_ripls(di_list,(0,5),no_transitions,no_probes,'','')
+out2 = multi_ripls(di_list,(0,10),no_transitions,no_probes,'','')
+assert( len( np.unique( [len(item) for item in out] ) ) == 1)
+assert (out[2]==out2[2][:5])
+
+ripls,di_lists,seeds,worker_names = out
+wout = p_worker(ripls[0],di_lists[0],
+                seeds[0],worker_names[0], multiprocessing.Queue(),
+                no_transitions,no_probes,infer_msg,plot_msg )
+
+for di in wout[0]:
+    print build_exp(di['expression'])
+out_dict = wout[1]
+lab = out_dict['labelToSnapshot']
+print lab['mu']['series']
+
+
+## test
+# %v [clear]
+# %v [assume xy ( beta 1   1)]
+# %v [observe (normal xy 1) 5 ]
+# %v [predict (beta xy (+ 1 5) ) ]
+# v = ipy_ripl
+# v2 = make_church_prime_ripl()
+# for d in v.list_directives():
+#     build_py_directive(v2,d)
+
+# for i,d in enumerate(v.list_directives()):
+#     print d
+#     print v2.list_directives()[i]
+#     print '-------------\n'
+
+
+
