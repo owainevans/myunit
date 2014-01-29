@@ -1,6 +1,6 @@
 from venture.shortcuts import *
 import numpy as np
-import multiprocessing
+import multiprocessing,time
 
 ## LATEST VERSION
 
@@ -64,7 +64,6 @@ def run_py_directive(ripl,d):
     if d['instruction']=='assume':
         ripl.assume( d['symbol'], build_exp(d['expression']), label=d['label'] )
     elif d['instruction']=='observe':
-        print build_exp(d['expression'])
         ripl.observe( build_exp(d['expression']), d['value'], label=d['label'] )
     elif d['instruction']=='predict':
         ripl.predict( build_exp(d['expression']), label=d['label'] )
@@ -89,7 +88,7 @@ def multi_ripls(directives_list,ripls_range,no_transitions,no_probes,infer_msg,p
     ripls = [make_church_prime_ripl() for i in range(no_ripls)]
 
     # could vary the directives, but for now they are same for all
-    directives_lists = [directives_list] * no_ripls
+    di_lists = [directives_list] * no_ripls
 
     # This seed should stay fixed in order to reproduce results
     np.random.seed(1)
@@ -99,15 +98,52 @@ def multi_ripls(directives_list,ripls_range,no_transitions,no_probes,infer_msg,p
 
     worker_names = ['w'+str(i)+'_'+str(seeds[i]) for i in range(len(seeds) ) ]
 
-    q = multiprocessing.Queue()
+    inq = multiprocessing.Queue()
+    outq = multiprocessing.Queue()
+    procs = []
+    
+    for i in range(no_ripls):
+        myargs = (ripls[i], di_lists[i], seeds[i], worker_names[i],
+                inq, outq, infer_msg, plot_msg)
+        p = multiprocessing.Process(group=None, target=p_worker,
+                                    args=myargs, name=worker_names[i])
+        procs.append(p)
+        
+        p.start()
 
-    #for i in range(no_ripls):
+    # loop for creating jobs
 
-    return ripls,directives_lists,seeds,worker_names
+    # job_count = 0
+    # WHILE TRUE:
+    #     if line==(infermsg,plotmsg,notrans,noprobes)
+    #     do following
+    
+    job_count = no_ripls
+
+    for i in range(no_ripls):
+        inq.put( (no_transitions, no_probes) )
+    
+    while int(outq.qsize()) != job_count:
+        time.sleep(1)
+
+    print 'first batch DONE'
+    job_count += no_ripls
+
+    for i in range(no_ripls):
+        inq.put( (no_transitions+5, no_probes) )
+    
+    while int(outq.qsize()) != job_count:
+        print outq.qsize()
+        time.sleep(1)
+       
+    print 'terminating procs'
+    for p in procs: p.terminate()
+
+    return outq
 
 
 
-def p_worker(ripl,di_list,seed,name,q,no_transitions,no_probes,infer_msg,plot_msg):
+def p_worker(ripl,di_list,seed,name,inq,outq,infer_msg,plot_msg):
     '''1. Set ripl seed with seed from parent process.
        2. Run labeled directives from di_list on ripl.
        3. Create output dict of parameters and snapshot for each labeled directive
@@ -118,77 +154,109 @@ def p_worker(ripl,di_list,seed,name,q,no_transitions,no_probes,infer_msg,plot_ms
           after finishing no_transitions.
        6. Infer_msg could be used to select specific variables to record or
           to use non-default infer instructions.'''
-
+    print 'Process: ',multiprocessing.current_process().name    
     
     ripl.set_seed(seed)
 
-    # run directives from di_list on ripl, adding labels to unlabeled directives
-    # replace di_list with the new, labeled directives
+    # run directives from di_list on ripl, add labels, pull new di_list
     for di in di_list:
         run_py_directive(ripl,di)
     di_list = ripl.list_directives()
-    print 'new di_list',di_list
 
     
     # create output dict
-    out_dict = {'worker_name':name,'no_transitions':no_transitions,
-                'no_probes':no_probes, 'infer_msg':infer_msg,
-                'plot_msg':plot_msg, 
+    out = {'worker_name':name,'total_transitions':0,
+                'all_probes':[], 'infer_msg':infer_msg,
+                'plot_msg':plot_msg, 'seed':seed,
                 'labelToSnapshot':{} }
-    
-    # Find points at which to record values
-    step = int(round (float(no_transitions+1) / no_probes) )
-    probes = range(0,no_transitions+1,step)
-    print step, probes
 
     for di in di_list:
         label = di['label']
-        snapshot = { 'series': [0] * no_probes,
-                     'probes':probes, 'no_transitions':no_transitions,
-                     'seed':seed }
-        out_dict['labelToSnapshot'][label] = snapshot
+        out['labelToSnapshot'][label] = { 'series': [] }
+                                        
+    # FIXME, ensure no conflict in labels with logscore    
+    out['labelToSnapshot']['logscore']={'series': [] }
+   
+                                        
 
-  
-    for count in range(no_probes):
-        ripl.infer(step)   # add infer instructions based on infer_msg
+    while True:
+        no_transitions,no_probes = inq.get()
+        
+        step = int(round (float(no_transitions+1) / no_probes) )
+        start = out['total_transitions']
+        probes = range(start,start+no_transitions+1,step)
 
-        # update each series (could filter out observes)
-        for di in di_list:
-            label = di['label']
-            value = ripl.report(label)
-            series = out_dict['labelToSnapshot'][label]['series']
-            series[count] = value
-            # ADD LOGSCORE
+        for probe in probes:
+            ripl.infer(step)   # add infer instructions based on infer_msg
 
-    return di_list,out_dict
+            # update each series (could filter out observes)
+            for di in di_list:
+                label = di['label']
+                value = ripl.report(label)
+                series = out['labelToSnapshot'][label]['series']
+                series.append( value )
+                if np.random.beta(1,1) < .3:
+                    print '''name: %s, total_trans: %i, all_probes: %s,
+                             cur_probe: %i, cur_di_label: %s, value: %f,
+                             series: %s''' % (name,out['total_transitions'],
+                                          str(out['all_probes']),
+                                          probe,
+                                              label,round(value,3),
+                                              str(series[-1]) )
+
+            # same for logscore
+            value = ripl.get_global_logscore()
+            out['labelToSnapshot']['logscore']['series'].append(value)
+
+
+        # update stats
+        out['total_transitions'] += no_transitions
+        out['all_probes'] += probes
+
+        outq.put(out)
+        
+
+        
+    print 'Exiting (process %s)' % name
+    return di_list,out
+
+
 
 ## Testing
 %v [clear]
 %v [assume mu (normal 0 20)]
 %v [observe (normal mu 1) 5 ]
 %v [observe (normal mu 0.6) 5 ]
-%v [predict (normal mu (+ 1 2)) ]
+%v [predict (normal mu (+ .1 .2)) ]
 
 di_list = ipy_ripl.list_directives()
-ripls_range = (0,5); no_transitions = 50
-no_probes = 5;     infer_msg = ''; plot_msg = '';
+ripls_range = (0,2); no_transitions = 30
+no_probes = 3;     infer_msg = ''; plot_msg = '';
 
 
-out = multi_ripls(di_list,(0,5),no_transitions,no_probes,'','')
-out2 = multi_ripls(di_list,(0,10),no_transitions,no_probes,'','')
-assert( len( np.unique( [len(item) for item in out] ) ) == 1)
-assert (out[2]==out2[2][:5])
+outq = multi_ripls(di_list,ripls_range,no_transitions,no_probes,'','')
+out1 = outq.get()
+#assert len(out1['all_probes']) == no_probes + 1
+assert out1['total_transitions'] == 2*no_transitions
+assert out1['labelToSnapshot']['obs_2']['series'].index(5.)
+logscore_series = out1['labelToSnapshot']['logscore']['series']
+assert logscore_series[-1] > logscore_series[0]
 
-ripls,di_lists,seeds,worker_names = out
-wout = p_worker(ripls[0],di_lists[0],
-                seeds[0],worker_names[0], multiprocessing.Queue(),
-                no_transitions,no_probes,infer_msg,plot_msg )
 
-for di in wout[0]:
-    print build_exp(di['expression'])
-out_dict = wout[1]
-lab = out_dict['labelToSnapshot']
-print lab['mu']['series']
+# out2 = multi_ripls(di_list,(0,10),no_transitions,no_probes,'','')
+# assert( len( np.unique( [len(item) for item in out] ) ) == 1)
+# assert (out[2]==out2[2][:5])
+
+# ripls,di_lists,seeds,worker_names = out
+# wout = p_worker(ripls[0],di_lists[0],
+#                 seeds[0],worker_names[0], multiprocessing.Queue(),
+#                 no_transitions,no_probes,infer_msg,plot_msg )
+
+# for di in wout[0]:
+#     print build_exp(di['expression'])
+# out_dict = wout[1]
+# lab = out_dict['labelToSnapshot']
+# print lab['mu']['series']
 
 
 ## test
