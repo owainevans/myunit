@@ -3,6 +3,10 @@ import numpy as np
 import matplotlib.pylab as plt
 import multiprocessing,time
 from multiprocessing import Pool
+from scipy.stats import kde
+gkde = kde.gaussian_kde
+
+from bokeh.plotting import *
 
 ripl = make_church_prime_ripl()
 worker_state = {'init':False}
@@ -14,7 +18,6 @@ def worker(st_func_args):
     if not(worker_state['init']) or ripl.list_directives()==[]:
         p_name = multiprocessing.current_process().name
         name = 'w'+ p_name[p_name.rfind('-')+1:]
-        print 'Init: ', name,'.'
         worker_state['name'] = name
         
         worker_state['seed'] = int(name[1:])
@@ -74,55 +77,80 @@ class MultiRipl():
 
     def s(self,st): return self.delegate("ripl."+st)
 
+    
     def delegate(self,st):
         args = [st] * self.no_ripls
         out = self.pool.map(worker, args )
         return out
+
+    def snapshots(self,labels):
+        return [ (label,snapshot(label)) for label in labels]
+
         
     def snapshot(self,label,plot=False):
         out = self.report(label)
         s_out = sorted(out,key=lambda pair: int(pair[0][1:]))
         vals =  [ pair[1] for pair in s_out]
         if plot:
-            plt.hist(vals,bins=20)
-            plt.show()
+            fig, ax  = plt.subplots(figsize=(10,6))
+            ax.hist(vals)
+            ax.set_xlabel(label)
+            ax.set_title('%s at %i transitions' % (str(label),
+                                                   self.total_transitions) )
+            return vals,fig
         return vals
+
 
     def scatter(self,label1,label2):
         vals1 = self.snapshot(label1)
         vals2 = self.snapshot(label2)
-        plt.scatter(vals1,vals2)
-        plt.show()
+        fig, ax  = plt.subplots(figsize=(10,6))
+        ax.scatter(vals1,vals2)
+        ax.set_xlabel(label1); ax.set_ylabel(label2)
+        ax.set_title('%s vs. %s at %i transitions' % (str(label1),str(label2),
+                                                      self.total_transitions) )
+        return (vals1,vals2), fig
+        
+    
 
-    def probes(self,label,no_transitions,no_probes,plot=False):
-        step = int(round (float(no_transitions+1) / no_probes) )
-        probes = range(0,no_transitions+step,step)
+    def probes(self,label,no_transitions,no_probes,plot_hist=None,plot_series=None):
+        start = self.total_transitions
+        probes = map(int,np.round( np.linspace(0,no_transitions,no_probes) ) )
 
-        series = [];
-        for probe in probes:
-            self.infer(step)
+        series = [self.snapshot(label), ]
+        for i in range(len(probes[:-1])):
+            self.infer(probes[i+1]-probes[i])
             series.append( self.snapshot(label) )
             
-        if plot=='hist':
-            no_probes = len(probes)
+        if plot_hist:
             xmin = min([min(shot) for shot in series])
             xmax = max([max(shot) for shot in series])
-            fig,ax = plt.subplots(ncols=no_probes,sharex=True,figsize=(12,5) )
+            xr = np.linspace(xmin,xmax,400)
+            fig,ax = plt.subplots(ncols=no_probes,sharex=True,figsize=(12,6))
+            kdfig,kdax = plt.subplots(ncols=no_probes,sharex=True,figsize=(12,6))
             for i in range(no_probes):
-                ax[i].hist(series[i],bins=20)
+                ax[i].hist(series[i],bins=12)
+                kdax[i].plot(xr,gkde(series[i])(xr))
                 ax[i].set_xlim([xmin,xmax])
-                ax[i].set_title('Probe at %i out of %i' % (probes[i],no_transitions+step))
-                
-            fig.tight_layout()
+                t = '%s: start %i, probe at %i of %i' % (str(label),
+                                                               start,probes[i],
+                                                               no_transitions)
+                ax[i].set_title(t); kdax[i].set_title(t)
+            
+            fig.tight_layout(); kdfig.tight_layout()
 
-        if plot=='series':
+        if plot_series:
             fig,ax = plt.subplots()
             for ripl in range(self.no_ripls):
                 vals = [shot[ripl] for shot in series]
                 ax.plot(probes,vals,label='R'+str(ripl))
-            ax.legend()
+
+            t = '%s: start %i, probes at %s' % (str(label),start,str(probes))
+            ax.set_title(t)
+            #ax.legend()
 
         return probes,series
+
         
     def terminate(self):
         self.pool.terminate()
@@ -131,12 +159,11 @@ class MultiRipl():
         
 def wm(no_ripls):
     v = MultiRipl(no_ripls)
-    v.clear()
     v.assume('r','(normal 0 30)')
-    v.assume('s','(beta 1 1)')
-    v.assume('w','(normal r 6.)')
+    v.assume('s','(normal 0 30)')
+    v.assume('w','(normal (+ r s) 5.)')
     v.observe('w','50.')
-    v.assume('w2','(normal r 6.)')
+    v.assume('w2','(normal (+ r s) 6.)')
     v.observe('w2','50.')
    
     #v.infer(1)
@@ -187,16 +214,16 @@ def wm(no_ripls):
 
 
 
-def snapshot(label,no_transitions,no_ripls):
-    my = MultiRipl(no_ripls)
+# def snapshot(label,no_transitions,no_ripls):
+#     my = MultiRipl(no_ripls)
     
-    my.assume("mu","(normal 0 20)",label='mu');
-    my.observe('(normal mu 5.)', '7.' )
-    my.observe('(normal mu 5.)', '6.5' )
+#     my.assume("mu","(normal 0 20)",label='mu');
+#     my.observe('(normal mu 5.)', '7.' )
+#     my.observe('(normal mu 5.)', '6.5' )
 
-    my.infer(no_transitions)
+#     my.infer(no_transitions)
 
-    out = my.report(label)
-    s_vals = sorted(out,key=lambda pair: int(pair[0][1:]))
-    return s_vals
+#     out = my.report(label)
+#     s_vals = sorted(out,key=lambda pair: int(pair[0][1:]))
+#     return s_vals
 
