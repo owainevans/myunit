@@ -49,6 +49,7 @@
 from IPython.parallel import Client
 from venture.shortcuts import *
 import numpy as np
+import time
 
 
 copy_ripl_string="""
@@ -181,16 +182,17 @@ class MRipls():
             ripls.append( make_church_prime_ripl() )
             ripls[-1].set_seed(seed)
             seeds.append(seed)
-            import os
-            pid = os.getpid()
+            
+            import os; pid = os.getpid()
+            index = len(ripls) - 1
             print 'Engine %i created ripl %i' % (pid,seed)
-            return pid,seed # should we return a ripl for debugging?
-            # should also return the position in the local ripls list
+            return pid,index,seed  # should we return a ripl for debugging?
+            
         
         
-        self.id_seed_pairs = self.dview.map( mk_ripl, self.seeds )
+        self.ripls_location = self.dview.map( mk_ripl, self.seeds ).get()
 
-        print self.id_seed_pairs.get()
+        print sorted(self.ripls_location,key=lambda x:x[0])
         
 
     def assume(self,sym,exp,**kwargs):
@@ -223,9 +225,10 @@ class MRipls():
     def add_ripls(self,no_ripls,new_seeds=None):
         # could instead check this for each engine we map to
         # and just fail to copy a few
-        if not all(self.dview['ripls']):
-            print 'Error: some engines have no ripl, add_ripls failed'
-            return None
+
+        #if not all(self.dview['ripls'].get()):
+         #   print 'Error: some engines have no ripl, add_ripls failed'
+          #  return None
 
         if not(new_seeds):
             last = self.seeds[-1]
@@ -237,32 +240,58 @@ class MRipls():
             ripls.append( copy_ripl(ripls[0]) ) # ripls[0] must be present
             ripls[-1].set_seed(seed)
             seeds.append(seed)
-            import os;   pid = os.getpid()
+            import os;   pid = os.getpid(); index = len(ripls) - 1
             print 'Engine %i created ripl %i' % (pid,seed)
-            return pid,seed
+            return pid,index,seed
 
-        update = self.dview.map(add_ripl_engine,seeds)
-        self.id_seed_pairs.append(update)
+        update = self.dview.map(add_ripl_engine,new_seeds).get()
+        self.ripls_location.append(update)
         
-        return update
+        print sorted(self.ripls_location,key=lambda x:x[0])
             
 
-v = MRipls(4); 
+v = MRipls(4); cat = lambda xs,ys: xs + ys 
 test_v = make_church_prime_ripl(); test_v.set_seed(0)
-ls_x = v.assume('x','(uniform_continuous 0 1000)').get()
+ls_x = reduce(cat,v.assume('x','(uniform_continuous 0 1000)').get())
 test_x = test_v.assume('x','(uniform_continuous 0 1000)')
 local_x = v.local_ripl.report(1)
 assert( np.round(test_x) in np.round(ls_x) )
 assert( np.round(local_x) in np.round(ls_x) )
 
-# this fails with val = '-10.'
-v.observe('(normal x 50)','-10')
-test_v.observe('(normal x 50)','-10')
-ls_obs = v.report(2).get()
-test_obs = v.report(2)
-local_obs = v.local_ripl.report(2)
-assert( ( [ np.round(test_obs)]*v.no_ripls ) == np.round(ls_obs)  )
-assert( ( [np.round(local_obs)]*v.no_ripls ) == np.round(ls_obs)  )
+# # this fails with val = '-10.'
+# v.observe('(normal x 50)','-10')
+# test_v.observe('(normal x 50)','-10')
+# ls_obs = v.report(2); time.sleep(1)
+# ls_obs = reduce(cat,ls_obs.get())
+# test_obs = test_v.report(2)
+# local_obs = v.local_ripl.report(2)
+# assert( ( [ np.round(test_obs)]*v.no_ripls ) == list(np.round(ls_obs))  )
+# assert( ( [np.round(local_obs)]*v.no_ripls ) == list(np.round(ls_obs))  )
+
+# v.infer(300); test_v.infer(300)
+# ls_x2 = reduce(cat,v.report(1).get()); test_x2 = test_v.report(1);
+# local_x2 = v.local_ripl.report(1)
+# assert( np.round(test_x2) in np.round(ls_x2) )
+# assert( np.round(local_x2) in np.round(ls_x2) )
+# assert( np.mean(test_x2) < np.mean(test_x) )
+# assert( not( v.no_ripls>10 and np.mean(test_x2) > 50) ) # may be too tight
+
+
+# ls_x3=reduce(cat,v.predict('(normal x .1)').get()) 
+# test_x3 = test_v.predict('(normal x .1)')
+# local_x3 = v.local_ripl.predict('(normal x .1)')
+# assert( np.round(test_x3) in np.round(ls_x3) )
+# assert( np.round(local_x3) in np.round(ls_x3) )
+# assert( np.mean(test_x3) < np.mean(test_x) )
+# assert( not( v.no_ripls>10 and np.mean(test_x3) > 50) ) # may be too tight
+
+
+
+
+
+
+
+
 
         
 def mk2():
