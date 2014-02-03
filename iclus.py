@@ -1,47 +1,3 @@
-from IPython.parallel import Client
-from venture.shortcuts import *
-
-def get_pid():
-    import os
-    return os.getpid()
-
-def flip(p=.5):
-    import numpy
-    return numpy.random.binomial(1,p)
-
-
-
-cli = Client()
-dview = cli[:]
-no_ripls = len(cli.ids)
-
-def init_ripls(no_ripls):
-    ripls = [make_church_prime_ripl() for i in range(no_ripls) ]
-    for i,ripl in enumerate(ripls):
-        ripl.set_seed(i)
-    return ripls
-v = init_ripls(no_ripls)
-
-
-# def assume(sym,exp): return v.assume(sym,exp)
-# def predict(exp): return v.predict(exp)
-# def set_seed(seed): return v.set_seed(seed)
-
-# dview.block = True
-# v=make_church_prime_ripl()
-# dview['v']=5
-
-# dview.execute('from venture.shortcuts import make_church_prime_ripl')
-# dview.execute('v=make_church_prime_ripl()')
-# dview.map(set_seed,cli.ids)
-# dview.apply(assume,'p','(beta 1 1)')
-# dview.apply(assume,'x','(flip p)')
-# dview.apply( lambda exp,val: v.observe(exp,val), 'x','true')
-# dview.apply( lambda exp,val: v.observe(exp,val), '(flip p)','true')
-# dview.apply( lambda n: v.infer(n),10 )
-# r = dview.apply( lambda var: v.report(var), 1)
-
-
 
 #blocking is optional pass through (default is async), but wait() method will block on last thing
 
@@ -70,101 +26,243 @@ v = init_ripls(no_ripls)
 # for mripl, what's procesdure i used to display state (one magic)
 # separate magic for running for the pgoram
 
-1. cell for no_ripls. (doesnt need magic) 2. one magic for update display. 
+# 1. cell for no_ripls. (doesnt need magic) 2. one magic for update display. 
 
-display() :: ripl,fig  ->    string, fig 
-mr.set_display(display)
-mr.display(plot = true, model = random (vs. all) )
-calls display attribute, displays results and collects them)
+# display() :: ripl,fig  ->    string, fig 
+# mr.set_display(display)
+# mr.display(plot = true, model = random (vs. all) )
+# calls display attribute, displays results and collects them)
 
-CRP: discrete values, plots.
+# CRP: discrete values, plots.
 
-Demos: IPython.parallle, skip bokeh, readme, intro to start walkers. 
+# Demos: IPython.parallle, skip bokeh, readme, intro to start walkers. 
 
-Walk through, applying to crp mixture. 
+# Walk through, applying to crp mixture. 
 
-ADD this spec to Asana. (Alexey a follower, + vikash)
+# ADD this spec to Asana. (Alexey a follower, + vikash)
 
-baxter.
+# baxter.
 
-#Python Freenode:#Python (channel), minrk or min_rk
+# #Python Freenode:#Python (channel), minrk or min_rk
 
-marshall on what econ can't do
 
-can't do agent based model in econ coz can't identify anything computationally 
-(or even in principle if your frequentists). so not clear what your sim shows.
-hence go for regression instead where things are identifiable (but what things)
+from IPython.parallel import Client
+from venture.shortcuts import *
+import numpy as np
 
-logic vs. progams: programs dont have uninterpreted constants that then 
-can be talked of as satisying different values in different models. 
-instead you have to get the thing from somewhere. (though type theory
-inference is based on assuming its any object of a certain type, and 
-so related to the logical case. just unclear what the types are in 
-terms fo reference to the world). logical model doesn't involve a prior
-over models. probalistic program doesn't either but we dont have way
-of using it in this way -- we could try to do transformations on it
-where we leave constants undefied, could use inference over proof
-theory to help us. 
 
-why CYC fails: scaling problems. if squishing all into limited logic
-results in exp or high poly blow (as in chess example) then youre 
-screwed. logic based approach involves treating facts as zero/1
-known or not. (epistemic). and then using a particular form 
-for representation (declarative). people tried to keep rich form
-while having something like probabilities on sentences (christiano) but that's hard). what's wrong with logic: certainly zero/1 is very bad description
-of our state of knolwefdge/understanding. but the representation may be bad
-also, due to poor formalization, critical issues of modality, vagueness/
-prototypicality, types, etc. dont assume that the representation is that
-good in general. 
+copy_ripl_string="""
+def build_exp(exp):
+    'Take expression from directive_list and build the Lisp string'
+    if type(exp)==str:
+        return exp
+    elif type(exp)==dict:
+        return str(exp['value'])
+    else:
+        return '('+str(exp[0])+' ' + ' '.join(map(build_exp,exp[1:])) + ')'
 
-logic, like lisp, seems really powerful. but we still can't deal with 
-many quantifiers! good things that come from logical more
- philosophical, about what things
-to put in the model, what premises lead to plausible models; organizing thought
-ruling out minimalist theories, etc. 
+def run_py_directive(ripl,d):
+    'Removes labels'
+    if d['instruction']=='assume':
+        ripl.assume( d['symbol'], build_exp(d['expression']) )
+    elif d['instruction']=='observe':
+        ripl.observe( build_exp(d['expression']), d['value'] )
+    elif d['instruction']=='predict':
+        ripl.predict( build_exp(d['expression']) )
+    
+def copy_ripl(ripl,seed=None):
+    '''copies ripl via di_list to fresh ripl, preserve directive_id
+    by preserving order, optionally set_seed'''
+    di_list = ripl.list_directives()
+    new_ripl = make_church_prime_ripl()
+    if seed: new_ripl.set_seed(seed)
+    [run_py_directive(new_ripl,di) for di in di_list]
+    return new_ripl
+"""
 
-logic good for det domains of math and circuits. (what about 
-logical planning?)
+def build_exp(exp):
+    'Take expression from directive_list and build the Lisp string'
+    if type(exp)==str:
+        return exp
+    elif type(exp)==dict:
+        return str(exp['value'])
+    else:
+        return '('+str(exp[0])+' ' + ' '.join(map(build_exp,exp[1:])) + ')'
 
-gerry sussman: need procedural thing in physics for non-linear
-systems wher eyou can build good simulations but can't do analytical 
-characterization from initial condition. so procedure is just
-critical epistemically; declaarative analytical appproach fundamentally
-limited (for all strengths). 
+def run_py_directive(ripl,d):
+    'Removes labels'
+    if d['instruction']=='assume':
+        ripl.assume( d['symbol'], build_exp(d['expression']) )
+    elif d['instruction']=='observe':
+        ripl.observe( build_exp(d['expression']), d['value'] )
+    elif d['instruction']=='predict':
+        ripl.predict( build_exp(d['expression']) )
+    
+def copy_ripl(ripl,seed=None):
+    '''copies ripl via di_list to fresh ripl, preserve directive_id
+    by preserving order, optionally set_seed'''
+    di_list = ripl.list_directives()
+    new_ripl = make_church_prime_ripl()
+    if seed: new_ripl.set_seed(seed)
+    [run_py_directive(new_ripl,di) for di in di_list]
+    return new_ripl
 
-should the constants be in a linked list or hashmap or what. physicists 
-says neither. aaronsonian. 
+# test for copy_ripl funtion
+myv = make_church_prime_ripl()
+myv.assume('x','(beta 1 1)'); myv.observe('(normal x 1)','5'); myv.predict('(flip)')
+assert [build_exp(di['expression']) for di in myv.list_directives() ] ==  [build_exp(di['expression']) for di in copy_ripl(myv).list_directives() ]
 
+# test for parallel use of copy_ripl_string
+
+cli = Client(); dv = cli[:]; dv.block=True
+dv.execute(copy_ripl_string)
+dv.execute('from venture.shortcuts import make_church_prime_ripl')
+dv.execute('v=make_church_prime_ripl()')
+dv.execute('v.set_seed(1)')
+dv.execute("v.assume('x','(beta 1 1)'); v.observe('(normal x 1)','5'); v.predict('(flip)')" )
+dv.execute("v2 = copy_ripl(v,seed=1)" )
+dv.execute("true_assert = [build_exp(di['expression']) for di in v.list_directives() ] ==  [build_exp(di['expression']) for di in copy_ripl(v).list_directives() ]")
+assert all(dv['true_assert'])
+
+
+## PLAN
+# 1.local ripl with same seed as first remote ripl that gets same directives
+# 2. check copying (1 ripl, 1 engine, add 1 extra with same seed)
+# 3. note labeling problems and specify solution
+# 4. how does copying interact with inference? (would need to copy values)
+
+# 5. how to do display:
+# cell magic where you write function def that takes variable ripl
+# (or that has the name in header and just is a bunch of code on ripl)
+
+# we have one multiripl in ipython global. given cell magic, we now 
+# call the display method of multiripl. this takes the string from 
+# cell and executes across all engines. (we also eval the code locally).
+# we the have an appy:
+#   dview.apply( (def f (return [user_func(ripl) for ripl in ripls]), no args) )
+
+# simpler: just get people to use para magic %%px to define the function, using
+# any variable name for the ripl. have them give the function name as a string. 
+# then display(func_name) can be dview.execture('[ %s(r) for r in ripls]'%func_name)
+
+
+# even simpler?:
+#  user just defines function locally
+#  they run mrip.display(function).
+# display function says 
+   
+# def display(self,user_func):
+#     def p_func():
+#         return [user_func(ripl) for ripl in ripls]
+#     dview.apply( p_func,no args)
+
+# does this work? no, coz user_funct wouldnt be sent along. 
 
 
 
 class MRipls():
-    def __init__(self,cli):
-        self.no_ripls = len(cli.ids)
+    def __init__(self,no_ripls,block=False):
+        self.local_ripl = make_church_prime_ripl()
+        self.local_ripl.set_seed(0)   # same seed as first remote ripl
+        self.no_ripls = no_ripls
+        self.seeds = range(self.no_ripls)
+        
+        self.cli = Client()
         self.ids = cli.ids
         self.dview = cli[:]
-        self.dview.block = True
+        self.dview.block = block
+
         self.dview.execute('from venture.shortcuts import make_church_prime_ripl')
-        self.dview.execute('v=make_church_prime_ripl()')
-        self.dview.map(lambda seed: v.set_seed(seed), range(self.no_ripls) )
+        self.dview.execute('ripls = []')
+        self.dview.execute('seeds = []')
+        self.dview.execute(copy_ripl_string) # defines copy_ripl and dependencies
         
-    def map_predict(self,exps):
-        return self.dview.map(lambda exp: v.predict(exp), exps)
+        def mk_ripl(seed):
+            ripls.append( make_church_prime_ripl() )
+            ripls[-1].set_seed(seed)
+            seeds.append(seed)
+            import os
+            pid = os.getpid()
+            print 'Engine %i created ripl %i' % (pid,seed)
+            return pid,seed # should we return a ripl for debugging?
+            # should also return the position in the local ripls list
         
+        
+        self.id_seed_pairs = self.dview.map( mk_ripl, self.seeds )
+
+        print self.id_seed_pairs.get()
+        
+
+    def assume(self,sym,exp,**kwargs):
+        self.local_ripl.assume(sym,exp,**kwargs)
+        def f(sym,exp,**kwargs):
+            return [ripl.assume(sym,exp,**kwargs) for ripl in ripls]
+        return self.dview.apply(f,sym,exp,**kwargs)       
+        
+    def observe(self,exp,val):
+        self.local_ripl.observe(exp,val)
+        def f(exp,val): return [ripl.observe(exp,val) for ripl in ripls]
+        return self.dview.apply(f,exp,val)
+    
     def predict(self,exp):
-        return self.dview.apply(lambda exp: v.predict(exp), exp)
+        self.local_ripl.predict(exp)
+        def f(exp): return [ripl.predict(exp) for ripl in ripls]
+        return self.dview.apply(f,exp)
 
+    def infer(self,params):
+        self.local_ripl.infer(params)
+        def f(params): return [ripl.infer(params) for ripl in ripls]
+        return self.dview.apply(f,params)
 
-
-
-v = MRipls(cli)
-r = v.predict('(beta 1 1)')
-rs = v.map_predict( [str(i**2) for i in range(10)] )
-
-
+    def report(self,label_or_did,**kwargs):
+        self.local_ripl.report(label_or_did,**kwargs)
+        def f(label_or_did,**kwargs):
+            return [ripl.report(label_or_did,**kwargs) for ripl in ripls]
+        return self.dview.apply(f,label_or_did,**kwargs)
         
+    def add_ripls(self,no_ripls,new_seeds=None):
+        # could instead check this for each engine we map to
+        # and just fail to copy a few
+        if not all(self.dview['ripls']):
+            print 'Error: some engines have no ripl, add_ripls failed'
+            return None
+
+        if not(new_seeds):
+            last = self.seeds[-1]
+            new_seeds = range( last+1, last+1+no_ripls)
+        self.seeds += new_seeds
 
 
+        def add_ripl_engine(seed):
+            ripls.append( copy_ripl(ripls[0]) ) # ripls[0] must be present
+            ripls[-1].set_seed(seed)
+            seeds.append(seed)
+            import os;   pid = os.getpid()
+            print 'Engine %i created ripl %i' % (pid,seed)
+            return pid,seed
+
+        update = self.dview.map(add_ripl_engine,seeds)
+        self.id_seed_pairs.append(update)
+        
+        return update
+            
+
+v = MRipls(4); 
+test_v = make_church_prime_ripl(); test_v.set_seed(0)
+ls_x = v.assume('x','(uniform_continuous 0 1000)').get()
+test_x = test_v.assume('x','(uniform_continuous 0 1000)')
+local_x = v.local_ripl.report(1)
+assert( np.round(test_x) in np.round(ls_x) )
+assert( np.round(local_x) in np.round(ls_x) )
+
+# this fails with val = '-10.'
+v.observe('(normal x 50)','-10')
+test_v.observe('(normal x 50)','-10')
+ls_obs = v.report(2).get()
+test_obs = v.report(2)
+local_obs = v.local_ripl.report(2)
+assert( ( [ np.round(test_obs)]*v.no_ripls ) == np.round(ls_obs)  )
+assert( ( [np.round(local_obs)]*v.no_ripls ) == np.round(ls_obs)  )
 
         
 def mk2():
@@ -178,11 +276,11 @@ def mk():
 
 def pred(): return v.predict('(beta 1 1)')
 
-dview.block = True
-with dview.sync_imports():
-    import venture.shortcuts
+# dview.block = True
+# with dview.sync_imports():
+#     import venture.shortcuts
 
 
-dview.push( { 'v':0 } )
-dview.push( { 'myd':{} } )
+# dview.push( { 'v':0 } )
+# dview.push( { 'myd':{} } )
 #dview.apply(mk2)
