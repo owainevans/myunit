@@ -169,10 +169,11 @@ class MRipls():
         self.seeds = range(self.no_ripls)
         
         self.cli = Client()
-        self.ids = cli.ids
         self.dview = cli[:]
-        self.dview.block = block
-
+        self.dview.block = block 
+        def p_getpids(): import os; return os.getpid()
+        self.pids = self.dview.apply_sync(p_getpids)
+      
         self.dview.execute('from venture.shortcuts import make_church_prime_ripl')
         self.dview.execute('ripls = []')
         self.dview.execute('seeds = []')
@@ -188,8 +189,6 @@ class MRipls():
             print 'Engine %i created ripl %i' % (pid,seed)
             return pid,index,seed  # should we return a ripl for debugging?
             
-        
-        
         self.ripls_location = self.dview.map( mk_ripl, self.seeds ).get()
 
         print sorted(self.ripls_location,key=lambda x:x[0])
@@ -222,21 +221,21 @@ class MRipls():
             return [ripl.report(label_or_did,**kwargs) for ripl in ripls]
         return self.dview.apply(f,label_or_did,**kwargs)
         
-    def add_ripls(self,no_ripls,new_seeds=None):
+    def add_ripls(self,no_new_ripls,new_seeds=None):
         # could instead check this for each engine we map to
-        # and just fail to copy a few
-
-        #if not all(self.dview['ripls'].get()):
-         #   print 'Error: some engines have no ripl, add_ripls failed'
-          #  return None
+        pids_with_ripls = [ripl_loc[0] for ripl_loc in self.ripls_location]
+        if any([pid not in pids_with_ripls for pid in self.pids]):
+            print 'Error: some engines have no ripl, add_ripls failed'
+            return None
 
         if not(new_seeds):
-            last = self.seeds[-1]
-            new_seeds = range( last+1, last+1+no_ripls)
-        self.seeds += new_seeds
-
+            next = self.seeds[-1] + 1
+            new_seeds = range( next, next+no_new_ripls )
 
         def add_ripl_engine(seed):
+            # load the di_list from an existing ripl from ripls
+            # we only set_seed after having loaded, so all ripls
+            # created by a call to add ripls may have same starting values
             ripls.append( copy_ripl(ripls[0]) ) # ripls[0] must be present
             ripls[-1].set_seed(seed)
             seeds.append(seed)
@@ -246,9 +245,88 @@ class MRipls():
 
         update = self.dview.map(add_ripl_engine,new_seeds).get()
         self.ripls_location.append(update)
+        self.no_ripls += no_new_ripls
+        self.seeds += new_seeds
         
         print sorted(self.ripls_location,key=lambda x:x[0])
-            
+
+    def display(self,f_name,f_def,func):
+        self.dview.execute(f_def)
+        res_id = np.random.randint(10**10)
+        code = 'res_%i = [ %s(ripl) for ripl in ripls]' % (res_id,f_name)
+        self.dview.execute(code)
+        result = self.dview['res_'+str(res_id)]
+        return result
+
+    def display2(self,f):
+        return None
+
+
+
+
+## clean version pxlocal
+def pxlocal_clean(line, cell):
+    ip = get_ipython()
+    ip.run_cell(cell)
+    ip.run_cell_magic("px", line, cell)
+    f_name_parens = cell.split()[1]
+    f_name = f_name_parens[:f_name_parens.find('(')]
+    
+    res_id = np.random.randint(10**4) # FIXME
+    code = 'res_%i = [ %s(ripl) for ripl in ripls]' % (res_id,f_name)
+    v.dview.execute(code)
+    res = v.dview['res_'+str(res_id)]
+    print res
+    return res
+
+
+
+
+
+
+
+
+def pxlocal(line, cell):
+    # one way: define function locally and sent it to all ripls
+    #f_name = f_name_parens[:f_name_parens.find('(')]
+    #res1 = v.dview.apply_sync(lambda:[func(r) for r in ripls])
+    
+    # second way: run all the code, which could include various 
+    # defines and imports needed for the function, across all engines
+    # then execute code that maps the defined function across all ripls
+    # in an engine and pull out the resulting object (should be something
+    # one can pull).
+    ip = get_ipython()
+    ip.run_cell(cell)
+    ip.run_cell_magic("px", line='',cell=cell) # we remove line, which is normally here
+    f_name_parens = cell.split()[1]
+    f_name = f_name_parens[:f_name_parens.find('(')]
+    if line: 
+        f_name = str(line.strip())
+    # NOTE that we put random code in if we find function name like this
+    # better to use a line
+    
+    
+    res_id = np.random.randint(10**4) # FIXME
+    code = 'res_%i = [ %s(ripl) for ripl in ripls]' % (res_id,f_name)
+    v.dview.execute(code)
+    res = v.dview['res_'+str(res_id)]
+    print res
+    return res
+
+ip = get_ipython()
+ip.register_magic_function(pxlocal, "cell")    
+
+def test_pxlocal():
+    # %%pxlocal
+    # def u_pred(ripl): return ripl.predict('(beta 1 1)')
+
+    # res = reduce(lambda s,t:s+t, _ )
+    # assert( u_pred(v.local_ripl) in res )
+    pass
+    
+    
+
 
 v = MRipls(4); cat = lambda xs,ys: xs + ys 
 test_v = make_church_prime_ripl(); test_v.set_seed(0)
