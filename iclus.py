@@ -126,27 +126,6 @@ dv.execute("true_assert = [build_exp(di['expression']) for di in v.list_directiv
 assert all(dv['true_assert'])
 
 
-## PLAN
-# 1.local ripl with same seed as first remote ripl that gets same directives
-# 2. check copying (1 ripl, 1 engine, add 1 extra with same seed)
-# 3. note labeling problems and specify solution
-# 4. how does copying interact with inference? (would need to copy values)
-
-# 5. how to do display:
-# cell magic where you write function def that takes variable ripl
-# (or that has the name in header and just is a bunch of code on ripl)
-
-# we have one multiripl in ipython global. given cell magic, we now 
-# call the display method of multiripl. this takes the string from 
-# cell and executes across all engines. (we also eval the code locally).
-# we the have an appy:
-#   dview.apply( (def f (return [user_func(ripl) for ripl in ripls]), no args) )
-
-# simpler: just get people to use para magic %%px to define the function, using
-# any variable name for the ripl. have them give the function name as a string. 
-# then display(func_name) can be dview.execture('[ %s(r) for r in ripls]'%func_name)
-
-
 # even simpler?:
 #  user just defines function locally
 #  they run mrip.display(function).
@@ -160,6 +139,32 @@ assert all(dv['true_assert'])
 # does this work? no, coz user_funct wouldnt be sent along. 
 
 
+
+### PLAN
+# 1. make display work and plot with discrete and cts inputs. 
+#   so the crp example (maybe with ellipsoids). 
+#     -- should add snapshot, as display will depend on it.
+# 2. change everything to sync (will save time quickly).
+# 3. have the local ripl be optional
+# 4. nosify the tests
+# 5. add all directives
+# 6. record no_total_transitions (with snapshot)
+
+myname='border counter'
+
+def dinv(f,x):
+    print myname
+    for i in range(x):
+        if f(i)==x: return i
+    return False
+
+def clear_all_engines():
+    cli = Client()
+    cli.clear(block=True)
+
+def shutdown():
+    cli = Client(); cli.shutdown()
+    
 
 class MRipls():
     def __init__(self,no_ripls,block=False):
@@ -190,6 +195,8 @@ class MRipls():
             return pid,index,seed  # should we return a ripl for debugging?
             
         self.ripls_location = self.dview.map( mk_ripl, self.seeds ).get()
+
+
 
         print sorted(self.ripls_location,key=lambda x:x[0])
         
@@ -250,17 +257,6 @@ class MRipls():
         
         print sorted(self.ripls_location,key=lambda x:x[0])
 
-    def display(self,f_name,f_def,func):
-        self.dview.execute(f_def)
-        res_id = np.random.randint(10**10)
-        code = 'res_%i = [ %s(ripl) for ripl in ripls]' % (res_id,f_name)
-        self.dview.execute(code)
-        result = self.dview['res_'+str(res_id)]
-        return result
-
-    def display2(self,f):
-        return None
-
 
 
 
@@ -280,9 +276,20 @@ def pxlocal_clean(line, cell):
     return res
 
 
-
-
-
+def pxlocal_line(line, cell):
+    ip = get_ipython()
+    ip.run_cell(cell)
+    ip.run_cell_magic("px", '', cell)
+    
+    f_name = str(line).split()[0]
+    mripl=eval( str(line).split()[1] ) 
+    
+    res_id = np.random.randint(10**4) # FIXME
+    code = 'res_%i = [ %s(ripl) for ripl in ripls]' % (res_id,f_name)
+    mripl.dview.execute(code)
+    res = mripl.dview['res_'+str(res_id)]
+    print 'f_name:',f_name,'m_ripl',line.split()[1],mripl
+    return res
 
 
 
@@ -328,7 +335,7 @@ def test_pxlocal():
     
 
 
-v = MRipls(4); cat = lambda xs,ys: xs + ys 
+v = MRipls(2); cat = lambda xs,ys: xs + ys 
 test_v = make_church_prime_ripl(); test_v.set_seed(0)
 ls_x = reduce(cat,v.assume('x','(uniform_continuous 0 1000)').get())
 test_x = test_v.assume('x','(uniform_continuous 0 1000)')
@@ -337,31 +344,31 @@ assert( np.round(test_x) in np.round(ls_x) )
 assert( np.round(local_x) in np.round(ls_x) )
 
 # # this fails with val = '-10.'
-# v.observe('(normal x 50)','-10')
-# test_v.observe('(normal x 50)','-10')
-# ls_obs = v.report(2); time.sleep(1)
-# ls_obs = reduce(cat,ls_obs.get())
-# test_obs = test_v.report(2)
-# local_obs = v.local_ripl.report(2)
-# assert( ( [ np.round(test_obs)]*v.no_ripls ) == list(np.round(ls_obs))  )
-# assert( ( [np.round(local_obs)]*v.no_ripls ) == list(np.round(ls_obs))  )
+v.observe('(normal x 50)','-10')
+test_v.observe('(normal x 50)','-10')
+ls_obs = v.report(2);
+ls_obs = reduce(cat,ls_obs.get())
+test_obs = test_v.report(2)
+local_obs = v.local_ripl.report(2)
+assert( ( [ np.round(test_obs)]*v.no_ripls ) == list(np.round(ls_obs))  )
+assert( ( [np.round(local_obs)]*v.no_ripls ) == list(np.round(ls_obs))  )
 
-# v.infer(300); test_v.infer(300)
-# ls_x2 = reduce(cat,v.report(1).get()); test_x2 = test_v.report(1);
-# local_x2 = v.local_ripl.report(1)
-# assert( np.round(test_x2) in np.round(ls_x2) )
-# assert( np.round(local_x2) in np.round(ls_x2) )
-# assert( np.mean(test_x2) < np.mean(test_x) )
-# assert( not( v.no_ripls>10 and np.mean(test_x2) > 50) ) # may be too tight
+v.infer(120); test_v.infer(120)
+ls_x2 = reduce(cat,v.report(1).get()); test_x2 = test_v.report(1);
+local_x2 = v.local_ripl.report(1)
+assert( np.round(test_x2) in np.round(ls_x2) )
+assert( np.round(local_x2) in np.round(ls_x2) )
+assert( np.mean(test_x2) < np.mean(test_x) )
+assert( not( v.no_ripls>10 and np.mean(test_x2) > 50) ) # may be too tight
 
 
-# ls_x3=reduce(cat,v.predict('(normal x .1)').get()) 
-# test_x3 = test_v.predict('(normal x .1)')
-# local_x3 = v.local_ripl.predict('(normal x .1)')
-# assert( np.round(test_x3) in np.round(ls_x3) )
-# assert( np.round(local_x3) in np.round(ls_x3) )
-# assert( np.mean(test_x3) < np.mean(test_x) )
-# assert( not( v.no_ripls>10 and np.mean(test_x3) > 50) ) # may be too tight
+ls_x3=reduce(cat,v.predict('(normal x .1)').get()) 
+test_x3 = test_v.predict('(normal x .1)')
+local_x3 = v.local_ripl.predict('(normal x .1)')
+assert( np.round(test_x3) in np.round(ls_x3) )
+assert( np.round(local_x3) in np.round(ls_x3) )
+assert( np.mean(test_x3) < np.mean(test_x) )
+assert( not( v.no_ripls>10 and np.mean(test_x3) > 50) ) # may be too tight
 
 
 
@@ -372,22 +379,4 @@ assert( np.round(local_x) in np.round(ls_x) )
 
 
         
-def mk2():
-    myd['v'] = venture.shortcuts.make_church_prime_ripl()
-    return myd['v']
-    
-def mk():
-    global v
-    v = venture.shortcuts.make_church_prime_ripl()
-    return v
 
-def pred(): return v.predict('(beta 1 1)')
-
-# dview.block = True
-# with dview.sync_imports():
-#     import venture.shortcuts
-
-
-# dview.push( { 'v':0 } )
-# dview.push( { 'myd':{} } )
-#dview.apply(mk2)
