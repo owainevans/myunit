@@ -1,30 +1,16 @@
 
-#blocking is optional pass through (default is async), but wait() method will block on last thing
-
-# get access to master
-
-# write nose testing: capture spec for new methods that aren't in methods
-
-# test parallel machinery: compare to single ripl. fix seeds
-
 # support discrete data, make sure tests cover discrete
 
 # make sure 'procedure' data is handeled, throw an exception (Test should show exception)
 
 # discrete/cts, discrete 'scatter, 2d heatmap.
 
-# multiripl magic
-
 # starcluster, venture installed, template
 
-# clear shouldn't destroy the seed (delegate new seed after clear)
+# In Master: clear shouldn't destroy the seed (delegate new seed after clear)
 
 # continuous inference
 
-# map somethign across all ripls
-
-# for mripl, what's procesdure i used to display state (one magic)
-# separate magic for running for the pgoram
 
 # 1. cell for no_ripls. (doesnt need magic) 2. one magic for update display. 
 
@@ -34,14 +20,10 @@
 # calls display attribute, displays results and collects them)
 
 # CRP: discrete values, plots.
-
 # Demos: IPython.parallle, skip bokeh, readme, intro to start walkers. 
-
 # Walk through, applying to crp mixture. 
 
-# ADD this spec to Asana. (Alexey a follower, + vikash)
 
-# baxter.
 
 # #Python Freenode:#Python (channel), minrk or min_rk
 
@@ -143,17 +125,60 @@ assert all(dv['true_assert'])
 ### PLAN
 # 1. make display work and plot with discrete and cts inputs. 
 #   so the crp example (maybe with ellipsoids). 
-#     -- should add snapshot, as display will depend on it.
+#     -- should add snapshot (with total transitions), as display will depend on it.
 # 2. change everything to sync (will save time quickly).
 # 3. have the local ripl be optional
 # 4. nosify the tests
 # 5. add all directives
 # 6. record no_total_transitions (with snapshot)
 
-myname='border counter'
+
+# Notes on Parallel IPython
+
+# Questions
+# 1. How exactly to enable user to purge data from a process
+# and to shutdown processes. Should we allow one engine
+# to fail and still get results back from others (vs. just
+# having to restart the whole thing again). 
+
+# 2. Basic design idea: only wait on infer. Everything else
+# is synchronous. Do we need to give user the option of 
+# making everything asynchronous?
+
+# If not: we could set blocking and then have everything 
+# be blocking by default (map not map_sync). 
+
+# For infer, we override by running apply_async. We get
+# back an async object.  
+
+# if infer is async, need to think about what if someone combines them
+# someone does a %v cell magic and it has (infer 10) in it. 
+# might need an infer to finish before the predict. so if 
+# waiting for an infer to fnish, what will predict do?
+
+# looks life v.predict(1000) waits for v.infer(1000) to finish. is this
+# a general rule, that one command will wait for the other? presumably
+# otherwise semantics wouldn't work out. 
+#  a=v.infer(100000);b= v.predict('100000000000000')
+
+
+
+
+
+# seems we can use magic commands in a %px
+# and so the engines are running ipython
+# --though they don't get the ipy_ripl (why not?)
+
+# question of what happens when you push a function to them
+# functions can't be mutated, so a pointer to a function
+# should be the same as copying the function, apart from 
+# the issue of the enclosing env. so: the function you
+# push is like a copy, it doesn't maintain the closure
+# (makes sense, coz we can't send across functions with closures)
+
+#e.g. s='local'; f=lambda:s; dv.push({'f':f}); %px f() = error (no s var)
 
 def dinv(f,x):
-    print myname
     for i in range(x):
         if f(i)==x: return i
     return False
@@ -164,6 +189,7 @@ def clear_all_engines():
 
 def shutdown():
     cli = Client(); cli.shutdown()
+
     
 
 class MRipls():
@@ -195,8 +221,6 @@ class MRipls():
             return pid,index,seed  # should we return a ripl for debugging?
             
         self.ripls_location = self.dview.map( mk_ripl, self.seeds ).get()
-
-
 
         print sorted(self.ripls_location,key=lambda x:x[0])
         
@@ -257,6 +281,8 @@ class MRipls():
         
         print sorted(self.ripls_location,key=lambda x:x[0])
 
+    
+
 
 
 
@@ -275,7 +301,7 @@ def pxlocal_clean(line, cell):
     print res
     return res
 
-
+## Current best version
 def pxlocal_line(line, cell):
     ip = get_ipython()
     ip.run_cell(cell)
@@ -284,7 +310,7 @@ def pxlocal_line(line, cell):
     f_name = str(line).split()[0]
     mripl=eval( str(line).split()[1] ) 
     
-    res_id = np.random.randint(10**4) # FIXME
+    res_id = np.random.randint(10**4) # FIXME, should be appending results or adding to dict
     code = 'res_%i = [ %s(ripl) for ripl in ripls]' % (res_id,f_name)
     mripl.dview.execute(code)
     res = mripl.dview['res_'+str(res_id)]
