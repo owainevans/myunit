@@ -1,41 +1,10 @@
 
-# support discrete data, make sure tests cover discrete
-
-# make sure 'procedure' data is handeled, throw an exception (Test should show exception)
-
-# discrete/cts, discrete 'scatter, 2d heatmap.
-
-# starcluster, venture installed, template
-
-# In Master: clear shouldn't destroy the seed (delegate new seed after clear)
-
-# continuous inference
-
-
-# 1. cell for no_ripls. (doesnt need magic) 2. one magic for update display. 
-
-# display() :: ripl,fig  ->    string, fig 
-# mr.set_display(display)
-# mr.display(plot = true, model = random (vs. all) )
-# calls display attribute, displays results and collects them)
-
-# CRP: discrete values, plots.
-# Demos: IPython.parallle, skip bokeh, readme, intro to start walkers. 
-# Walk through, applying to crp mixture. 
-
-
-
 # #Python Freenode:#Python (channel), minrk or min_rk
-
 
 from IPython.parallel import Client
 from venture.shortcuts import *
 import numpy as np
 import time
-
-
-
-
 
 copy_ripl_string="""
 def build_exp(exp):
@@ -93,45 +62,15 @@ def copy_ripl(ripl,seed=None):
     [run_py_directive(new_ripl,di) for di in di_list]
     return new_ripl
 
-# test for copy_ripl funtion
-myv = make_church_prime_ripl()
-myv.assume('x','(beta 1 1)'); myv.observe('(normal x 1)','5'); myv.predict('(flip)')
-assert [build_exp(di['expression']) for di in myv.list_directives() ] ==  [build_exp(di['expression']) for di in copy_ripl(myv).list_directives() ]
-
-# test for parallel use of copy_ripl_string
-
-cli = Client(); dv = cli[:]; dv.block=True
-dv.execute(copy_ripl_string)
-dv.execute('from venture.shortcuts import make_church_prime_ripl')
-dv.execute('v=make_church_prime_ripl()')
-dv.execute('v.set_seed(1)')
-dv.execute("v.assume('x','(beta 1 1)'); v.observe('(normal x 1)','5'); v.predict('(flip)')" )
-dv.execute("v2 = copy_ripl(v,seed=1)" )
-dv.execute("true_assert = [build_exp(di['expression']) for di in v.list_directives() ] ==  [build_exp(di['expression']) for di in copy_ripl(v).list_directives() ]")
-assert all(dv['true_assert'])
-
-
-# even simpler?:
-#  user just defines function locally
-#  they run mrip.display(function).
-# display function says 
-   
-# def display(self,user_func):
-#     def p_func():
-#         return [user_func(ripl) for ripl in ripls]
-#     dview.apply( p_func,no args)
-
-# does this work? no, coz user_funct wouldnt be sent along. 
-
 
 
 ### PLAN
 # 1. make display work and plot with discrete and cts inputs. 
 #   so the crp example (maybe with ellipsoids). 
 #     -- should add snapshot (with total transitions), as display will depend on it.
-# 2. change everything to sync (will save time quickly).
+
 # 3. have the local ripl be optional
-# 4. nosify the tests
+
 # 5. add all directives
 # 6. record no_total_transitions (with snapshot)
 # 7. want the user to be able to specify a cluster (a Client() output
@@ -140,6 +79,10 @@ assert all(dv['true_assert'])
 # of infers as part of your code, or you might easily (in interaction)
 # write somethign that causes crashes. (blocking is enemy of 
 # interactive development)
+
+# In Master: clear shouldn't destroy the seed (delegate new seed after clear)
+
+# continuous inference
 
 
 # Notes on Parallel IPython
@@ -206,7 +149,7 @@ def shutdown():
     cli = Client(); cli.shutdown()
     
 
-class MRipls():
+class MRipl():
     def __init__(self,no_ripls,client=None):
         self.local_ripl = make_church_prime_ripl()
         self.local_ripl.set_seed(0)   # same seed as first remote ripl
@@ -214,7 +157,7 @@ class MRipls():
         self.seeds = range(self.no_ripls)
         
         self.cli = Client() if not(client) else client
-        self.dview = cli[:]
+        self.dview = self.cli[:]
         self.dview.block = True
         def p_getpids(): import os; return os.getpid()
         self.pids = self.dview.apply(p_getpids)
@@ -229,45 +172,49 @@ class MRipls():
             ripls[-1].set_seed(seed)
             seeds.append(seed)
             
-        self.ripls_location = self.dview.map( mk_ripl, self.seeds )
+        self.dview.map( mk_ripl, self.seeds )
         self.update_ripls_info()
-        print display_ripls()
+        print self.display_ripls()
         
+    
+    def lst_flatten(self,l): return [el for subl in l for el in subl]
 
     def assume(self,sym,exp,**kwargs):
         self.local_ripl.assume(sym,exp,**kwargs)
         def f(sym,exp,**kwargs):
             return [ripl.assume(sym,exp,**kwargs) for ripl in ripls]
-        return self.dview.apply(f,sym,exp,**kwargs)       
+        return self.lst_flatten( self.dview.apply(f,sym,exp,**kwargs) )
         
     def observe(self,exp,val):
         self.local_ripl.observe(exp,val)
         def f(exp,val): return [ripl.observe(exp,val) for ripl in ripls]
-        return self.dview.apply(f,exp,val)
+        return self.lst_flatten( self.dview.apply(f,exp,val) )
     
     def predict(self,exp):
         self.local_ripl.predict(exp)
         def f(exp): return [ripl.predict(exp) for ripl in ripls]
-        return self.dview.apply(f,exp)
+        return self.lst_flatten( self.dview.apply(f,exp) )
 
     def infer(self,params,block=False):
         self.local_ripl.infer(params)
         def f(params): return [ripl.infer(params) for ripl in ripls]
 
         if block:
-            return self.dview.apply_sync(f,params)
+            return self.lst_flatten( self.dview.apply_sync(f,params) )
         else:
-            return self.dview.apply_async(f,params)
+            return self.lst_flatten( self.dview.apply_async(f,params) )
 
     def report(self,label_or_did,**kwargs):
         self.local_ripl.report(label_or_did,**kwargs)
         def f(label_or_did,**kwargs):
             return [ripl.report(label_or_did,**kwargs) for ripl in ripls]
-        return self.dview.apply(f,label_or_did,**kwargs)
+        return self.lst_flatten( self.dview.apply(f,label_or_did,**kwargs) )
         
     def add_ripls(self,no_new_ripls,new_seeds=None):
+        assert(type(no_new_ripls)==int and no_new_ripls>0)
+
         # could instead check this for each engine we map to
-        pids_with_ripls = [ripl_loc[0] for ripl_loc in self.ripls_location]
+        pids_with_ripls = [ripl['pid'] for ripl in self.ripls_location]
         if any([pid not in pids_with_ripls for pid in self.pids]):
             print 'Error: some engines have no ripl, add_ripls failed'
             return None
@@ -292,16 +239,20 @@ class MRipls():
         print self.display_ripls()
     
     def display_ripls(self):
-        return sorted(self.ripls_location,key=lambda x:x[0])
+        s= sorted(self.ripls_location,key=lambda x:x['pid'])
+        ##FIXME improve output
+        str= '(pid, index, seed) : \n' 
+        lst = [(d['pid'],d['index'],d['seed']) for d in s]
+        return s
 
     def update_ripls_info(self):
-        'resets attributes about the pool of ripls'
+        'nb: reassigns attributes that store state of pool of ripls'
         def get_info():
             import os; pid=os.getpid()
-            return [ ( pid, index, seeds[index] ) for index in range( len(ripls) ) ]
-        self.ripls_location = self.dview.apply(get_info)
+            return [ { 'pid':pid, 'index':index, 'seed':seeds[index] } for index in range( len(ripls) ) ]
+        self.ripls_location = self.lst_flatten( self.dview.apply(get_info) )
         self.no_ripls = len(self.ripls_location)
-        self.seeds = [triple[2] for triple in self.ripls_location]
+        self.seeds = [ripl['seed'] for ripl in self.ripls_location]
         
 
     def remove_ripls(self,no_rm_ripls):
@@ -323,30 +274,9 @@ class MRipls():
         print self.display_ripls()
 
     
-# test adding and removing ripls and pulling info about ripls to mripl
-no_rips = 4
-vv=MRipls(no_rips)
 
-
-def check_size(mr,no_rips):
-    survey = mr.dview.apply(lambda: len(ripls))
-    pred = mr.predict('(+ 1 1)')
-    no_res = len(reduce(lambda s,t:s+t,pred))
-    sizes = [mr.no_ripls, len(mr.seeds), len(mr.display_ripls),
-            len(mr.ripls_location), sum(survey), no_res]
-    return sizes == ( [no_rips]*len(sizes) )
     
-assert(check_size(vv,no_rips))
-vv.add_ripls(0); vv.remove_ripls(0)
-assert(check_size(vv,no_rips)) 
 
-no_rips += 2
-vv.add_ripls(2)
-assert(check_size(vv,no_rips))
-
-no_rips -= 2
-vv.remove_ripls(2)
-assert(check_size(vv,no_rips))
 
 
 
@@ -411,54 +341,17 @@ def pxlocal(line, cell):
     print res
     return res
 
-ip = get_ipython()
-ip.register_magic_function(pxlocal, "cell")    
+try:
+    ip = get_ipython()
+    ip.register_magic_function(pxlocal, "cell")   
+except:
+    print 'no ipython'
 
-def test_pxlocal():
-    # %%pxlocal
-    # def u_pred(ripl): return ripl.predict('(beta 1 1)')
 
-    # res = reduce(lambda s,t:s+t, _ )
-    # assert( u_pred(v.local_ripl) in res )
-    pass
-    
+
+
     
 
-
-v = MRipls(2); cat = lambda xs,ys: xs + ys 
-test_v = make_church_prime_ripl(); test_v.set_seed(0)
-ls_x = reduce(cat,v.assume('x','(uniform_continuous 0 1000)'))
-test_x = test_v.assume('x','(uniform_continuous 0 1000)')
-local_x = v.local_ripl.report(1)
-assert( np.round(test_x) in np.round(ls_x) )
-assert( np.round(local_x) in np.round(ls_x) )
-
-# # this fails with val = '-10.'
-v.observe('(normal x 50)','-10')
-test_v.observe('(normal x 50)','-10')
-ls_obs = v.report(2);
-ls_obs = reduce(cat,ls_obs)
-test_obs = test_v.report(2)
-local_obs = v.local_ripl.report(2)
-assert( ( [ np.round(test_obs)]*v.no_ripls ) == list(np.round(ls_obs))  )
-assert( ( [np.round(local_obs)]*v.no_ripls ) == list(np.round(ls_obs))  )
-
-v.infer(120); test_v.infer(120)
-ls_x2 = reduce(cat,v.report(1)); test_x2 = test_v.report(1);
-local_x2 = v.local_ripl.report(1)
-assert( np.round(test_x2) in np.round(ls_x2) )
-assert( np.round(local_x2) in np.round(ls_x2) )
-assert( np.mean(test_x2) < np.mean(test_x) )
-assert( not( v.no_ripls>10 and np.mean(test_x2) > 50) ) # may be too tight
-
-
-ls_x3=reduce(cat,v.predict('(normal x .1)')) 
-test_x3 = test_v.predict('(normal x .1)')
-local_x3 = v.local_ripl.predict('(normal x .1)')
-assert( np.round(test_x3) in np.round(ls_x3) )
-assert( np.round(local_x3) in np.round(ls_x3) )
-assert( np.mean(test_x3) < np.mean(test_x) )
-assert( not( v.no_ripls>10 and np.mean(test_x3) > 50) ) # may be too tight
 
 
 
