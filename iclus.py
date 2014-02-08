@@ -284,10 +284,9 @@ class MRipls():
             ripls.append( copy_ripl(ripls[0]) ) # ripls[0] must be present
             ripls[-1].set_seed(seed)
             seeds.append(seed)
-            import os;   pid = os.getpid(); index = len(ripls) - 1
+            import os;   pid = os.getpid();
             print 'Engine %i created ripl %i' % (pid,seed)
             
-
         self.dview.map(add_ripl_engine,new_seeds)
         self.update_ripls_info()
         print self.display_ripls()
@@ -299,7 +298,7 @@ class MRipls():
         'resets attributes about the pool of ripls'
         def get_info():
             import os; pid=os.getpid()
-            return [pid,index,seed[index] for index in range(len(ripls))]
+            return [ ( pid, index, seeds[index] ) for index in range( len(ripls) ) ]
         self.ripls_location = self.dview.apply(get_info)
         self.no_ripls = len(self.ripls_location)
         self.seeds = [triple[2] for triple in self.ripls_location]
@@ -316,7 +315,7 @@ class MRipls():
                 return 0
        
         while no_removed < no_rm_ripls:
-            res = self.dview.map(check_remove,[1]*no_rm_ripls])
+            res = self.dview.map(check_remove,[1]*no_rm_ripls)
             print res
             no_removed += len(res)
         
@@ -329,9 +328,8 @@ no_rips = 4
 vv=MRipls(no_rips)
 
 
-
 def check_size(mr,no_rips):
-    survey = %px len(ripls)
+    survey = mr.dview.apply(lambda: len(ripls))
     pred = mr.predict('(+ 1 1)')
     no_res = len(reduce(lambda s,t:s+t,pred))
     sizes = [mr.no_ripls, len(mr.seeds), len(mr.display_ripls),
