@@ -34,6 +34,9 @@ import numpy as np
 import time
 
 
+
+
+
 copy_ripl_string="""
 def build_exp(exp):
     'Take expression from directive_list and build the Lisp string'
@@ -131,6 +134,12 @@ assert all(dv['true_assert'])
 # 4. nosify the tests
 # 5. add all directives
 # 6. record no_total_transitions (with snapshot)
+# 7. want the user to be able to specify a cluster (a Client() output
+# object).
+# 8. async should be an option for plotting as you might have lots
+# of infers as part of your code, or you might easily (in interaction)
+# write somethign that causes crashes. (blocking is enemy of 
+# interactive development)
 
 
 # Notes on Parallel IPython
@@ -162,6 +171,12 @@ assert all(dv['true_assert'])
 #  a=v.infer(100000);b= v.predict('100000000000000')
 
 
+# q: what to do when one or two engines segfault? engines die. how 
+# can we recover. engines won't start again. how to properly kill the engines?
+
+# cool stuff: interactive_wait. maybe what we want for stuff involving inference
+# cool stuff:  %px from IPython.parallel import bind_kernel; bind_kernel()
+#           %px %qtconsole
 
 
 
@@ -189,21 +204,20 @@ def clear_all_engines():
 
 def shutdown():
     cli = Client(); cli.shutdown()
-
     
 
 class MRipls():
-    def __init__(self,no_ripls,block=False):
+    def __init__(self,no_ripls,client=None):
         self.local_ripl = make_church_prime_ripl()
         self.local_ripl.set_seed(0)   # same seed as first remote ripl
         self.no_ripls = no_ripls
         self.seeds = range(self.no_ripls)
         
-        self.cli = Client()
+        self.cli = Client() if not(client) else client
         self.dview = cli[:]
-        self.dview.block = block 
+        self.dview.block = True
         def p_getpids(): import os; return os.getpid()
-        self.pids = self.dview.apply_sync(p_getpids)
+        self.pids = self.dview.apply(p_getpids)
       
         self.dview.execute('from venture.shortcuts import make_church_prime_ripl')
         self.dview.execute('ripls = []')
@@ -215,14 +229,9 @@ class MRipls():
             ripls[-1].set_seed(seed)
             seeds.append(seed)
             
-            import os; pid = os.getpid()
-            index = len(ripls) - 1
-            print 'Engine %i created ripl %i' % (pid,seed)
-            return pid,index,seed  # should we return a ripl for debugging?
-            
-        self.ripls_location = self.dview.map( mk_ripl, self.seeds ).get()
-
-        print sorted(self.ripls_location,key=lambda x:x[0])
+        self.ripls_location = self.dview.map( mk_ripl, self.seeds )
+        self.update_ripls_info()
+        print display_ripls()
         
 
     def assume(self,sym,exp,**kwargs):
@@ -241,10 +250,14 @@ class MRipls():
         def f(exp): return [ripl.predict(exp) for ripl in ripls]
         return self.dview.apply(f,exp)
 
-    def infer(self,params):
+    def infer(self,params,block=False):
         self.local_ripl.infer(params)
         def f(params): return [ripl.infer(params) for ripl in ripls]
-        return self.dview.apply(f,params)
+
+        if block:
+            return self.dview.apply_sync(f,params)
+        else:
+            return self.dview.apply_async(f,params)
 
     def report(self,label_or_did,**kwargs):
         self.local_ripl.report(label_or_did,**kwargs)
@@ -260,7 +273,8 @@ class MRipls():
             return None
 
         if not(new_seeds):
-            next = self.seeds[-1] + 1
+            # want to ensure that new seeds are different from all existing seeds
+            next = max(self.seeds) + 1
             new_seeds = range( next, next+no_new_ripls )
 
         def add_ripl_engine(seed):
@@ -272,17 +286,69 @@ class MRipls():
             seeds.append(seed)
             import os;   pid = os.getpid(); index = len(ripls) - 1
             print 'Engine %i created ripl %i' % (pid,seed)
-            return pid,index,seed
+            
 
-        update = self.dview.map(add_ripl_engine,new_seeds).get()
-        self.ripls_location.append(update)
-        self.no_ripls += no_new_ripls
-        self.seeds += new_seeds
+        self.dview.map(add_ripl_engine,new_seeds)
+        self.update_ripls_info()
+        print self.display_ripls()
+    
+    def display_ripls(self):
+        return sorted(self.ripls_location,key=lambda x:x[0])
+
+    def update_ripls_info(self):
+        'resets attributes about the pool of ripls'
+        def get_info():
+            import os; pid=os.getpid()
+            return [pid,index,seed[index] for index in range(len(ripls))]
+        self.ripls_location = self.dview.apply(get_info)
+        self.no_ripls = len(self.ripls_location)
+        self.seeds = [triple[2] for triple in self.ripls_location]
         
-        print sorted(self.ripls_location,key=lambda x:x[0])
+
+    def remove_ripls(self,no_rm_ripls):
+        'map over the engines to remove a ripl if they have >1'
+        no_removed = 0
+        def check_remove(x):
+            if len(ripls) >= 2:
+                ripls.pop()
+                return 1
+            else:
+                return 0
+       
+        while no_removed < no_rm_ripls:
+            res = self.dview.map(check_remove,[1]*no_rm_ripls])
+            print res
+            no_removed += len(res)
+        
+        self.update_ripls_info()
+        print self.display_ripls()
 
     
+# test adding and removing ripls and pulling info about ripls to mripl
+no_rips = 4
+vv=MRipls(no_rips)
 
+
+
+def check_size(mr,no_rips):
+    survey = %px len(ripls)
+    pred = mr.predict('(+ 1 1)')
+    no_res = len(reduce(lambda s,t:s+t,pred))
+    sizes = [mr.no_ripls, len(mr.seeds), len(mr.display_ripls),
+            len(mr.ripls_location), sum(survey), no_res]
+    return sizes == ( [no_rips]*len(sizes) )
+    
+assert(check_size(vv,no_rips))
+vv.add_ripls(0); vv.remove_ripls(0)
+assert(check_size(vv,no_rips)) 
+
+no_rips += 2
+vv.add_ripls(2)
+assert(check_size(vv,no_rips))
+
+no_rips -= 2
+vv.remove_ripls(2)
+assert(check_size(vv,no_rips))
 
 
 
@@ -363,7 +429,7 @@ def test_pxlocal():
 
 v = MRipls(2); cat = lambda xs,ys: xs + ys 
 test_v = make_church_prime_ripl(); test_v.set_seed(0)
-ls_x = reduce(cat,v.assume('x','(uniform_continuous 0 1000)').get())
+ls_x = reduce(cat,v.assume('x','(uniform_continuous 0 1000)'))
 test_x = test_v.assume('x','(uniform_continuous 0 1000)')
 local_x = v.local_ripl.report(1)
 assert( np.round(test_x) in np.round(ls_x) )
@@ -373,14 +439,14 @@ assert( np.round(local_x) in np.round(ls_x) )
 v.observe('(normal x 50)','-10')
 test_v.observe('(normal x 50)','-10')
 ls_obs = v.report(2);
-ls_obs = reduce(cat,ls_obs.get())
+ls_obs = reduce(cat,ls_obs)
 test_obs = test_v.report(2)
 local_obs = v.local_ripl.report(2)
 assert( ( [ np.round(test_obs)]*v.no_ripls ) == list(np.round(ls_obs))  )
 assert( ( [np.round(local_obs)]*v.no_ripls ) == list(np.round(ls_obs))  )
 
 v.infer(120); test_v.infer(120)
-ls_x2 = reduce(cat,v.report(1).get()); test_x2 = test_v.report(1);
+ls_x2 = reduce(cat,v.report(1)); test_x2 = test_v.report(1);
 local_x2 = v.local_ripl.report(1)
 assert( np.round(test_x2) in np.round(ls_x2) )
 assert( np.round(local_x2) in np.round(ls_x2) )
@@ -388,7 +454,7 @@ assert( np.mean(test_x2) < np.mean(test_x) )
 assert( not( v.no_ripls>10 and np.mean(test_x2) > 50) ) # may be too tight
 
 
-ls_x3=reduce(cat,v.predict('(normal x .1)').get()) 
+ls_x3=reduce(cat,v.predict('(normal x .1)')) 
 test_x3 = test_v.predict('(normal x .1)')
 local_x3 = v.local_ripl.predict('(normal x .1)')
 assert( np.round(test_x3) in np.round(ls_x3) )
