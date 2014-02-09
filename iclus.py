@@ -4,6 +4,7 @@
 from IPython.parallel import Client
 from venture.shortcuts import *
 import numpy as np
+import matplotlib.pylab as plt
 import time
 
 copy_ripl_string="""
@@ -155,6 +156,7 @@ class MRipl():
         self.local_ripl.set_seed(0)   # same seed as first remote ripl
         self.no_ripls = no_ripls
         self.seeds = range(self.no_ripls)
+        self.total_transitions = 0
         
         self.cli = Client() if not(client) else client
         self.dview = self.cli[:]
@@ -185,10 +187,10 @@ class MRipl():
             return [ripl.assume(sym,exp,**kwargs) for ripl in ripls]
         return self.lst_flatten( self.dview.apply(f,sym,exp,**kwargs) )
         
-    def observe(self,exp,val):
-        self.local_ripl.observe(exp,val)
-        def f(exp,val): return [ripl.observe(exp,val) for ripl in ripls]
-        return self.lst_flatten( self.dview.apply(f,exp,val) )
+    def observe(self,exp,val,label=None):
+        self.local_ripl.observe(exp,val,label)
+        def f(exp,val,label): return [ripl.observe(exp,val,label) for ripl in ripls]
+        return self.lst_flatten( self.dview.apply(f,exp,val,label) )
     
     def predict(self,exp):
         self.local_ripl.predict(exp)
@@ -196,7 +198,14 @@ class MRipl():
         return self.lst_flatten( self.dview.apply(f,exp) )
 
     def infer(self,params,block=False):
+        if isinstance(params,int):
+            self.total_transitions += params
+        else:
+            ##FIXME: consider case of dict more carefully
+            self.total_transitions += params['transitions']
+
         self.local_ripl.infer(params)
+        
         def f(params): return [ripl.infer(params) for ripl in ripls]
 
         if block:
@@ -209,7 +218,8 @@ class MRipl():
         def f(label_or_did,**kwargs):
             return [ripl.report(label_or_did,**kwargs) for ripl in ripls]
         return self.lst_flatten( self.dview.apply(f,label_or_did,**kwargs) )
-        
+
+            
     def add_ripls(self,no_new_ripls,new_seeds=None):
         assert(type(no_new_ripls)==int and no_new_ripls>0)
 
@@ -253,8 +263,8 @@ class MRipl():
         self.ripls_location = self.lst_flatten( self.dview.apply(get_info) )
         self.no_ripls = len(self.ripls_location)
         self.seeds = [ripl['seed'] for ripl in self.ripls_location]
-        
 
+        
     def remove_ripls(self,no_rm_ripls):
         'map over the engines to remove a ripl if they have >1'
         no_removed = 0
@@ -267,14 +277,60 @@ class MRipl():
        
         while no_removed < no_rm_ripls:
             res = self.dview.map(check_remove,[1]*no_rm_ripls)
-            print res
             no_removed += len(res)
         
         self.update_ripls_info()
         print self.display_ripls()
 
     
+    def snapshot(self,did_labels_list, plot=False, scatter_heat=False):
+        
+        values = { did_label: self.report(did_label) for did_label in did_labels_list}
+        
+        # make sure ripls_info matches up with values
+        out = {'values':values,
+               'total_transitions':self.total_transitions,
+               'ripls_info': self.ripls_location }
 
+        if plot: out['figs'] = self.plot(out,scatter_heat)
+
+        return out
+
+    def type_list(self,lst):
+        if any([type(lst[0])==type(i) for i in lst]):
+            return 'mixed'
+        elif isinstance(lst[0],float):
+            return 'float'
+        elif isinstance(lst[0],int):
+            return 'int'
+        elif isinstance(lst[0],bool):
+            return 'bool'
+        else:
+            return 'other'
+
+        
+    def plot(self,out,scatter_heat): #values,total_transitions=None,ripls_info=None,scatter_heat=False):
+        'values={ did_label: values_list } '
+        figs = []
+        
+        for label,vals in out['values']:
+            fig,ax = plt.subplots()
+            ax.set_xlabel(str(label))
+            ax.set_title(('%s at %i transitions' % (str(label),
+                                                   self.total_transitions) )
+            var_type = self.type_list(var)
+            if var_type =='float':
+                ax.hist(vals)
+                # FIXME add KDE
+            elif var_type =='int':
+                ax.hist(vals)
+            elif var_type =='bool':
+                ax.hist(map(int,vals))
+            else:
+                print 'couldnt plot' ##FIXME, shouldnt add fig to figs
+            figs.append(fig)
+        
+        
     
 
 
