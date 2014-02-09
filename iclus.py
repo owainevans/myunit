@@ -72,6 +72,8 @@ def copy_ripl(ripl,seed=None):
 
 # 3. have the local ripl be optional
 
+#4. map function should intercept infers to update total-transitions
+
 # 5. add all directives
 # 6. record no_total_transitions (with snapshot)
 # 7. want the user to be able to specify a cluster (a Client() output
@@ -181,6 +183,15 @@ class MRipl():
     
     def lst_flatten(self,l): return [el for subl in l for el in subl]
 
+    def clear(self):
+        ## FIXME still has to reset seeds
+        self.total_transitions = 0
+        self.local_ripl.clear()
+        def f():
+            [ripl.clear() for ripl in ripls]
+            [ripls[i].set_seed(seeds[i]) for i in range(len(ripls))]
+        return  self.dview.apply(f) 
+    
     def assume(self,sym,exp,**kwargs):
         self.local_ripl.assume(sym,exp,**kwargs)
         def f(sym,exp,**kwargs):
@@ -201,9 +212,8 @@ class MRipl():
         if isinstance(params,int):
             self.total_transitions += params
         else:
-            ##FIXME: consider case of dict more carefully
             self.total_transitions += params['transitions']
-
+            ##FIXME: consider case of dict more carefully
         self.local_ripl.infer(params)
         
         def f(params): return [ripl.infer(params) for ripl in ripls]
@@ -283,9 +293,9 @@ class MRipl():
         print self.display_ripls()
 
     
-    def snapshot(self,did_labels_list, plot=False, scatter_heat=False):
-        
-        values = { did_label: self.report(did_label) for did_label in did_labels_list}
+    def snapshot(self,labels_lst, plot=False, scatter_heat=False):
+        if not(isinstance(labels_lst,list)): labels_lst = [labels_lst] 
+        values = { did_label: self.report(did_label) for did_label in labels_lst}
         
         # make sure ripls_info matches up with values
         out = {'values':values,
@@ -297,7 +307,7 @@ class MRipl():
         return out
 
     def type_list(self,lst):
-        if any([type(lst[0])==type(i) for i in lst]):
+        if any([type(lst[0])!=type(i) for i in lst]):
             return 'mixed'
         elif isinstance(lst[0],float):
             return 'float'
@@ -305,6 +315,8 @@ class MRipl():
             return 'int'
         elif isinstance(lst[0],bool):
             return 'bool'
+        elif isinstance(lst[0],str):
+            return 'string'
         else:
             return 'other'
 
@@ -313,19 +325,19 @@ class MRipl():
         'values={ did_label: values_list } '
         figs = []
         
-        for label,vals in out['values']:
+        for label,vals in out['values'].items():
             fig,ax = plt.subplots()
-            ax.set_xlabel(str(label))
-            ax.set_title(('%s at %i transitions' % (str(label),
-                                                   self.total_transitions) )
-            var_type = self.type_list(var)
+            ax.set_xlabel('Variable %s' % str(label))
+            ax.set_title('Hist: %s (transitions: %i, ripls: %i' % (str(label), self.total_transitions, self.no_ripls) )
+            var_type = self.type_list(vals)
+            
             if var_type =='float':
                 ax.hist(vals)
                 # FIXME add KDE
             elif var_type =='int':
                 ax.hist(vals)
             elif var_type =='bool':
-                ax.hist(map(int,vals))
+                ax.hist(vals)
             else:
                 print 'couldnt plot' ##FIXME, shouldnt add fig to figs
             figs.append(fig)

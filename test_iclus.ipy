@@ -101,7 +101,23 @@ def testDirectives():
     assert( not( v.no_ripls>10 and np.mean(test_x3) > 50) ) # may be too tight
 
 
-tests = [testDirectives,testCopyRipl,testAddRemoveSize,testParallelCopyFunction,testCopyFunction]
+def testSnapshot():
+    v=MRipl(4)
+    v.assume('x','(poisson 10)',label='x')
+    v.assume('y','3.',label='y')
+    seeds_poisson = [15.,4.,9.,11.] #precomputed
+    s=v.snapshot('x'); xs = s['values']['x']
+    vals = [ xs[ripl['seed']] for ripl in s['ripls_info'] ]
+    assert seeds_poisson == vals
+    
+    
+    assert v.snapshot('y')['values']['y'] == ([3.]*4)
+    assert v.snapshot('y')['total_transitions'] == 0
+    assert len(v.snapshot('y')['ripls_info']) == 4
+
+
+
+tests = [testSnapshot, testDirectives,testCopyRipl,testAddRemoveSize,testParallelCopyFunction,testCopyFunction]
 
 def testAll(): return [t() for t in tests]
 
