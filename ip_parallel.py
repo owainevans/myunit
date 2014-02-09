@@ -294,6 +294,7 @@ class MRipl():
 
     
     def snapshot(self,labels_lst, plot=False, scatter_heat=False):
+        
         if not(isinstance(labels_lst,list)): labels_lst = [labels_lst] 
         values = { did_label: self.report(did_label) for did_label in labels_lst}
         
