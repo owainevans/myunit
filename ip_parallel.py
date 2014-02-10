@@ -288,7 +288,7 @@ class MRipl():
         s= sorted(self.ripls_location,key=lambda x:x['pid'])
         ##FIXME improve output
         key = ['(pid, index, seed)'] 
-        lst = str + [(d['pid'],d['index'],d['seed']) for d in s]
+        lst = key + [(d['pid'],d['index'],d['seed']) for d in s]
         return lst
 
     def update_ripls_info(self):
@@ -380,45 +380,71 @@ v = MRipl(4)
 
 
 
+def mk_map_proc_string(mripl_name,mrid,proc_name):
+    lhs = 'results[-1] = '
+    subs = (mripl_name, mrid, proc_name, proc_name, mrid)
+    rhs = '{"mripl_mrid_proc":("%s",%i,"%s"), "vals": [%s(r) for r in mripls[%i]] }' % subs
+    return lhs+rhs
+    
+
+add_results_list_string = '''
+try: results.append([])
+except: results=[ [], ]'''
+
+def add_results_list():
+    try: results.append([])
+    except: results=[ [], ]
 
 
 
-
-
-## clean version pxlocal
+## Current best version
 def mr_map(line, cell):
     ip = get_ipython()
     ip.run_cell(cell)
-    ip.run_cell_magic("px", line, cell)
-    f_name_parens = cell.split()[1]
-    f_name = f_name_parens[:f_name_parens.find('(')]
-    
-    res_id = np.random.randint(10**4) # FIXME
-    code = 'res_%i = [ %s(ripl) for ripl in ripls]' % (res_id,f_name)
-    v.dview.execute(code)
-    res = v.dview['res_'+str(res_id)]
-    print res
-    return res
+    ip.run_cell_magic("px", '', cell)
 
-## Current best version
-def pxlocal_line(line, cell):
+    print line.split()
+    proc_name = str(line).split()[0]
+    mripl_name =  str(line).split()[1]
+    mripl = eval(mripl_name)
+    mrid = mripl.mrid
+    #plot = True if str(line).split()[3]=='plot' else False
+
+    mripl.dview.execute(add_results_list_string)
+    
+    map_proc_string = mk_map_proc_string(mripl_name,mrid,proc_name)
+    mripl.dview.execute(map_proc_string)
+
+    result = mripl.dview.apply( lambda: results[-1])
+
+    return result
+
+## Version where we use execute instead of %px
+def mr_map2(line, cell):
     ip = get_ipython()
     ip.run_cell(cell)
-    ip.run_cell_magic("px", '', cell)
+    #ip.run_cell_magic("px", '', cell)
+
+    print line.split()
+    proc_name = str(line).split()[0]
+    mripl_name =  str(line).split()[1]
+    mripl = eval(mripl_name)
+    mrid = mripl.mrid
+    #plot = True if str(line).split()[3]=='plot' else False
+
+    mripl.dview.execute(cell)
+
+    mripl.dview.execute(add_results_list_string)
     
-    f_name = str(line).split()[0]
-    mripl=eval( str(line).split()[1] ) 
-    
-    res_id = np.random.randint(10**4) # FIXME, should be appending results or adding to dict
-    code = 'res_%i = [ %s(ripl) for ripl in ripls]' % (res_id,f_name)
-    mripl.dview.execute(code)
-    res = mripl.dview['res_'+str(res_id)]
-    print 'f_name:',f_name,'m_ripl',line.split()[1],mripl
-    return res
+    map_proc_string = mk_map_proc_string(mripl_name,mrid,proc_name)
+    mripl.dview.execute(map_proc_string)
+
+    result = mripl.dview.apply( lambda: results[-1])
+
+    return result
 
 
 
-def pxlocal(line, cell):
     # one way: define function locally and sent it to all ripls
     #f_name = f_name_parens[:f_name_parens.find('(')]
     #res1 = v.dview.apply_sync(lambda:[func(r) for r in ripls])
@@ -428,32 +454,18 @@ def pxlocal(line, cell):
     # then execute code that maps the defined function across all ripls
     # in an engine and pull out the resulting object (should be something
     # one can pull).
-    ip = get_ipython()
-    ip.run_cell(cell)
-    ip.run_cell_magic("px", line='',cell=cell) # we remove line, which is normally here
-    f_name_parens = cell.split()[1]
-    f_name = f_name_parens[:f_name_parens.find('(')]
-    if line: 
-        f_name = str(line.strip())
-    # NOTE that we put random code in if we find function name like this
-    # better to use a line
-    
-    
-    res_id = np.random.randint(10**4) # FIXME
-    code = 'res_%i = [ %s(ripl) for ripl in ripls]' % (res_id,f_name)
-    v.dview.execute(code)
-    res = v.dview['res_'+str(res_id)]
-    print res
-    return res
+
 
 try:
     ip = get_ipython()
-    ip.register_magic_function(mr_map, "cell")   
+    ip.register_magic_function(mr_map, "cell")
+    ip.register_magic_function(mr_map2, "cell")   
 except:
     print 'no ipython'
 
 
 
+## cf mr map 1 vs. 2
 
     
 
