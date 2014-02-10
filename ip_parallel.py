@@ -5,7 +5,8 @@ from IPython.parallel import Client
 from venture.shortcuts import *
 import numpy as np
 import matplotlib.pylab as plt
-
+from scipy.stats import kde
+gaussian_kde = kde.gaussian_kde
 
 ### PLAN
 # 1. make display work and plot with discrete and cts inputs. 
@@ -323,7 +324,7 @@ class MRipl():
         print self.display_ripls()
 
     
-    def snapshot(self,labels_lst, plot=False, scatter_heat=False):
+    def snapshot(self,labels_lst, plot=False, scatter=False):
         
         if not(isinstance(labels_lst,list)): labels_lst = [labels_lst] 
         values = { did_label: self.report(did_label) for did_label in labels_lst}
@@ -333,9 +334,10 @@ class MRipl():
                'total_transitions':self.total_transitions,
                'ripls_info': self.ripls_location }
 
-        if plot: out['figs'] = self.plot(out,scatter_heat)
+        if plot: out['figs'] = self.plot(out,scatter=scatter)
 
         return out
+
 
     def type_list(self,lst):
         if any([type(lst[0])!=type(i) for i in lst]):
@@ -352,38 +354,56 @@ class MRipl():
             return 'other'
 
         
-    def plot(self,out,scatter_heat): #values,total_transitions=None,ripls_info=None,scatter_heat=False):
+    def plot(self,snapshot,scatter=False): #values,total_transitions=None,ripls_info=None,scatter_heat=False):
         'values={ did_label: values_list } '
         figs = []
+        values = snapshot['values']
+        no_trans = snapshot['total_transitions']
+        no_ripls = self.no_ripls
         
-        for label,vals in out['values'].items():
-            fig,ax = plt.subplots()
-            ax.set_xlabel('Variable %s' % str(label))
-            ax.set_title('Hist: %s (transitions: %i, ripls: %i' % (str(label), self.total_transitions, self.no_ripls) )
+        for label,vals in values.items():
+
             var_type = self.type_list(vals)
             
             if var_type =='float':
-                ax.hist(vals)
-                # FIXME add KDE
+                fig,ax = plt.subplots(nrows=1,ncols=2,sharex=True,figsize=(8,4))
+                xr = np.linspace(min(vals),max(vals),400)
+                ax[0].plot(xr,gaussian_kde(vals)(xr))
+                ax[0].set_xlim([min(vals),max(vals)])
+                ax[0].set_title('Gaussian KDE: %s (transitions: %i, ripls: %i)' % (str(label), no_trans, no_ripls) )
+
+                ax[1].hist(vals);
+                ax[1].set_title('Hist: %s (transitions: %i, ripls: %i)' % (str(label), no_trans, no_ripls) )
+                [a.set_xlabel('Variable %s' % str(label)) for a in ax]
+            
             elif var_type =='int':
                 ax.hist(vals)
             elif var_type =='bool':
                 ax.hist(vals)
             else:
                 print 'couldnt plot' ##FIXME, shouldnt add fig to figs
+            fig.tight_layout()
             figs.append(fig)
         
+        if scatter:
+            label0,vals0 = values.items()[0]
+            label1,vals1 = values.items()[1]
+            fig, ax  = plt.subplots(figsize=(8,5))
+            ax.scatter(vals0,vals1)
+            ax.set_xlabel(label0); ax.set_ylabel(label1)
+            ax.set_title('%s vs. %s (transitions: %i, ripls: %i)' % (str(label0),str(label1),
+                                                                    no_trans, no_ripls) )
+            figs.append(fig)
         
+        return figs
     
-clear_all_engines()
-v = MRipl(4)
 
 
 
 def mk_map_proc_string(mripl_name,mrid,proc_name):
     lhs = 'results[-1] = '
     subs = (mripl_name, mrid, proc_name, proc_name, mrid)
-    rhs = '{"mripl_mrid_proc":("%s",%i,"%s"), "vals": [%s(r) for r in mripls[%i]] }' % subs
+    rhs = '{"mripl_mrid_proc":("%s",%i,"%s"), "output": [%s(r) for r in mripls[%i]] }' % subs
     return lhs+rhs
     
 
@@ -418,6 +438,8 @@ def mr_map(line, cell):
     result = mripl.dview.apply( lambda: results[-1])
 
     return result
+
+
 
 ## Version where we use execute instead of %px
 def mr_map2(line, cell):
