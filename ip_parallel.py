@@ -2,7 +2,7 @@
 # #Python Freenode:#Python (channel), minrk or min_rk
 
 from IPython.parallel import Client
-from venture.shortcuts import *
+from venture.shortcuts import make_church_prime_ripl
 import numpy as np
 import matplotlib.pylab as plt
 from scipy.stats import kde
@@ -254,6 +254,11 @@ class MRipl():
             return [ripl.forget(label_or_did) for ripl in mripls[mrid]]
         return self.lst_flatten( self.dview.apply(f,label_or_did,self.mrid) )
 
+    def get_global_logscore(self):
+        self.local_ripl.get_global_logscore()
+        def f(mrid):
+            return [ripl.get_global_logscore() for ripl in mripls[mrid]]
+        return self.lst_flatten( self.dview.apply(f,self.mrid) )
             
     def add_ripls(self,no_new_ripls,new_seeds=None):
         'Add no_new_ripls ripls by mapping a copy_ripl function across engines'
@@ -290,6 +295,7 @@ class MRipl():
         ##FIXME improve output
         key = ['(pid, index, seed)'] 
         lst = key + [(d['pid'],d['index'],d['seed']) for d in s]
+        #[ ('pid:',pid,' seeds:', d['seed']) for pid in self.pids for d
         return lst
 
     def update_ripls_info(self):
@@ -324,12 +330,13 @@ class MRipl():
         print self.display_ripls()
 
     
-    def snapshot(self,labels_lst, plot=False, scatter=False):
+    def snapshot(self,labels_lst, plot=False, scatter=False, logscore=False):
         
         if not(isinstance(labels_lst,list)): labels_lst = [labels_lst] 
         values = { did_label: self.report(did_label) for did_label in labels_lst}
         
-        # make sure ripls_info matches up with values
+        if logscore: values['log']= self.get_global_logscore()
+        
         out = {'values':values,
                'total_transitions':self.total_transitions,
                'ripls_info': self.ripls_location }
@@ -366,29 +373,34 @@ class MRipl():
             var_type = self.type_list(vals)
             
             if var_type =='float':
-                fig,ax = plt.subplots(nrows=1,ncols=2,sharex=True,figsize=(8,4))
+                fig,ax = plt.subplots(nrows=1,ncols=2,sharex=True,figsize=(9,4))
                 xr = np.linspace(min(vals),max(vals),400)
                 ax[0].plot(xr,gaussian_kde(vals)(xr))
                 ax[0].set_xlim([min(vals),max(vals)])
                 ax[0].set_title('Gaussian KDE: %s (transitions: %i, ripls: %i)' % (str(label), no_trans, no_ripls) )
 
-                ax[1].hist(vals);
+                ax[1].hist(vals)
                 ax[1].set_title('Hist: %s (transitions: %i, ripls: %i)' % (str(label), no_trans, no_ripls) )
                 [a.set_xlabel('Variable %s' % str(label)) for a in ax]
             
             elif var_type =='int':
+                fig,ax = plt.subplots()
                 ax.hist(vals)
+                ax.set_xlabel = 'Variable %s' % str(label)
+                ax.set_title('Hist: %s (transitions: %i, ripls: %i)' % (str(label), no_trans, no_ripls) )
+                
             elif var_type =='bool':
                 ax.hist(vals)
             else:
                 print 'couldnt plot' ##FIXME, shouldnt add fig to figs
             fig.tight_layout()
             figs.append(fig)
-        
+
+            
         if scatter:
             label0,vals0 = values.items()[0]
             label1,vals1 = values.items()[1]
-            fig, ax  = plt.subplots(figsize=(8,5))
+            fig, ax  = plt.subplots(figsize=(6,4))
             ax.scatter(vals0,vals1)
             ax.set_xlabel(label0); ax.set_ylabel(label1)
             ax.set_title('%s vs. %s (transitions: %i, ripls: %i)' % (str(label0),str(label1),
@@ -396,7 +408,48 @@ class MRipl():
             figs.append(fig)
         
         return figs
+
+
+    def probes(self,did_label,no_transitions,no_probes,plot_hist=None,plot_series=None):
+        label = did_label
+        start = self.total_transitions
+        probes = map(int,np.round( np.linspace(0,no_transitions,no_probes) ) )
+        
+        series = [self.snapshot(label)['values'][label], ]
+        for i in range(len(probes[:-1])):
+            self.infer(probes[i+1]-probes[i])
+            series.append( self.snapshot(label)['values'][label] )
+
+        if plot_hist:
+            xmin = min([min(shot) for shot in series])
+            xmax = max([max(shot) for shot in series])
+            xr = np.linspace(xmin,xmax,400)
+            fig,ax = plt.subplots(ncols=no_probes,sharex=True,figsize=(10,5))
+            kdfig,kdax = plt.subplots(ncols=no_probes,sharex=True,figsize=(10,5))
+            for i in range(no_probes):
+                ax[i].hist(series[i],bins=12)
+                kdax[i].plot(xr,gaussian_kde(series[i])(xr))
+                ax[i].set_xlim([xmin,xmax])
+                t = '%s: start %i, probe at %i of %i' % (str(label),
+                                                               start,probes[i],
+                                                               no_transitions)
+                ax[i].set_title(t); kdax[i].set_title(t)
+
+            fig.tight_layout(); kdfig.tight_layout()
+
+        if plot_series:
+            fig,ax = plt.subplots()
+            for ripl in range(self.no_ripls):
+                vals = [shot[ripl] for shot in series]
+                ax.plot(probes,vals,label='R'+str(ripl))
+
+            t = '%s: start %i, probes at %s' % (str(label),start,str(probes))
+            ax.set_title(t)
+            #ax.legend()
+
+        return probes,series
     
+
 
 
 
@@ -406,7 +459,6 @@ def mk_map_proc_string(mripl_name,mrid,proc_name):
     rhs = '{"mripl_mrid_proc":("%s",%i,"%s"), "output": [%s(r) for r in mripls[%i]] }' % subs
     return lhs+rhs
     
-
 add_results_list_string = '''
 try: results.append([])
 except: results=[ [], ]'''
@@ -416,17 +468,22 @@ def add_results_list():
     except: results=[ [], ]
 
 
+def f(s):
+    return eval(s)
 
 ## Current best version
 def mr_map(line, cell):
+    '%mr_map proc_name mripl_name'
     ip = get_ipython()
-    ip.run_cell(cell)
+    ip.run_cell(cell)  # run cell locally, for local ripl
     ip.run_cell_magic("px", '', cell)
-
-    print line.split()
+    
+    #print 'ipvar' in globals(); print 'ipvar' in ip.user_ns
+    
     proc_name = str(line).split()[0]
     mripl_name =  str(line).split()[1]
-    mripl = eval(mripl_name)
+    mripl = eval(mripl_name,globals(),ip.user_ns)
+    ## FIXME: what should globals,locals be for this eval?
     mrid = mripl.mrid
     #plot = True if str(line).split()[3]=='plot' else False
 
@@ -436,37 +493,13 @@ def mr_map(line, cell):
     mripl.dview.execute(map_proc_string)
 
     result = mripl.dview.apply( lambda: results[-1])
-
-    return result
-
-
-
-## Version where we use execute instead of %px
-def mr_map2(line, cell):
-    ip = get_ipython()
-    ip.run_cell(cell)
-    #ip.run_cell_magic("px", '', cell)
-
-    print line.split()
-    proc_name = str(line).split()[0]
-    mripl_name =  str(line).split()[1]
-    mripl = eval(mripl_name)
-    mrid = mripl.mrid
-    #plot = True if str(line).split()[3]=='plot' else False
-
-    mripl.dview.execute(cell)
-
-    mripl.dview.execute(add_results_list_string)
-    
-    map_proc_string = mk_map_proc_string(mripl_name,mrid,proc_name)
-    mripl.dview.execute(map_proc_string)
-
-    result = mripl.dview.apply( lambda: results[-1])
-
-    return result
+    label = result[0]['mripl_mrid_proc']
+    engs = [eng['output'] for eng in result]
+    results_by_ripl = [ ripl for ripls in engs for ripl in ripls]
+    return label,results_by_ripl
 
 
-
+## Consider Version where we use execute instead of %px
     # one way: define function locally and sent it to all ripls
     #f_name = f_name_parens[:f_name_parens.find('(')]
     #res1 = v.dview.apply_sync(lambda:[func(r) for r in ripls])
@@ -477,17 +510,33 @@ def mr_map2(line, cell):
     # in an engine and pull out the resulting object (should be something
     # one can pull).
 
-
 try:
     ip = get_ipython()
-    ip.register_magic_function(mr_map, "cell")
-    ip.register_magic_function(mr_map2, "cell")   
+    ip.register_magic_function(mr_map, "cell")    
 except:
     print 'no ipython'
 
+def sp(no_ripls=2):    
+    v = MRipl(no_ripls)
+    v.assume('r','(normal 0 30)',label='r')
+    v.assume('s','(normal 0 30)',label='s')
+    v.assume('w1','(normal (+ r s) 5.)',label='w1')
+    v.observe('w1','50.')
+    v.assume('w2','(normal (+ r s) 6.)',label='w2')
+    v.observe('w2','50.')
+    return v
+
+def mix(no_ripls=2,k=3):
+    v=MRipl(no_ripls)
+    v.assume('k',str(k),label='k')
+    v.assume('theta','(mem (lambda (cluster) (normal 0 10) ) )')
+    pass
 
 
-## cf mr map 1 vs. 2
+clear_all_engines()
+# v=sp(4)
+
+# res=ip.run_cell_magic("mr_map",'foo v','def foo(r): return r.predict("r")')
 
     
 
