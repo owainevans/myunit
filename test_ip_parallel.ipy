@@ -1,5 +1,4 @@
-#!/usr/bin/env python
-#from iclus import *
+from venture.shortcuts import make_church_prime_ripl
 
 %run ~/myunit/ip_parallel.py
 
@@ -23,14 +22,17 @@ def testParallelCopyFunction():
     dv.execute("true_assert = [build_exp(di['expression']) for di in v.list_directives() ] ==  [build_exp(di['expression']) for di in copy_ripl(v).list_directives() ]")
     assert all(dv['true_assert'])
 
+
+
 ## TEST adding and removing ripls and pulling info about ripls to mripl
 
 def testAddRemoveSize():
+    clear_all_engines()
     no_rips = 4
     vv=MRipl(no_rips)
 
     def check_size(mr,no_rips):
-        survey = mr.dview.apply(lambda: len(ripls))
+        survey = mr.dview.apply(lambda mrid: len(mripls[mrid]), mr.mrid)
         pred = len(mr.predict('(+ 1 1)'))
 
         sizes = [mr.no_ripls, len(mr.seeds), len(mr.display_ripls()),
@@ -50,6 +52,7 @@ def testAddRemoveSize():
 def testCopyRipl():
     # create rips, add an assume. add some rips. get some reports
     # and see if reports are all the same. 
+    clear_all_engines()
     no_rips = 4
     vv = MRipl(no_rips)
     vv.assume('x','3.')
@@ -66,7 +69,8 @@ def testCopyRipl():
 
 def testDirectives():
     ## TEST DIRECTIVES
-    v = MRipl(2); cat = lambda xs,ys: xs + ys 
+    clear_all_engines()
+    v = MRipl(2)
     test_v = make_church_prime_ripl(); test_v.set_seed(0)
     ls_x = v.assume('x','(uniform_continuous 0 1000)')
     test_x = test_v.assume('x','(uniform_continuous 0 1000)')
@@ -110,18 +114,39 @@ def testSnapshot():
     vals = [ xs[ripl['seed']] for ripl in s['ripls_info'] ]
     assert seeds_poisson == vals
     
-    
     assert v.snapshot('y')['values']['y'] == ([3.]*4)
     assert v.snapshot('y')['total_transitions'] == 0
     assert len(v.snapshot('y')['ripls_info']) == 4
 
+def testMulti():
+    clear_all_engines()
+    no_rips = 4; no_mrips=2;
+    vs = [MRipl(no_rips) for i in range(no_mrips) ]
+    ls = [v.predict('3') for v in vs]
+    assert all( [ ls[0]==i for i in ls] )
+
+    ls = [v.predict('(poisson 10)') for v in vs]
+    assert all( [ set(ls[0])==set(i) for i in ls] ) # because seeds the same
+
+    [v.clear() for v in vs]
+    [v.assume('x','(normal 0 1)',label='x') for v in vs]
+    [v.observe('(normal x .1)','2.',label='obs') for v in vs]
+    [v.infer(100) for v in vs]
+    ls=[v.report('x') for v in vs]
+    assert all( [ set(ls[0])==set(i) for i in ls] ) # because seeds the same
 
 
-tests = [testSnapshot, testDirectives,testCopyRipl,testAddRemoveSize,testParallelCopyFunction,testCopyFunction]
+
+tests = [testMulti, testSnapshot, testDirectives,testCopyRipl,testAddRemoveSize,testParallelCopyFunction,testCopyFunction]
 
 def testAll(): return [t() for t in tests]
 
-if __name__ == '__main__':
-    testAll()
+
+
+#if __name__ == '__main__':
+    # import subprocess
+    # subprocess.call(['ipcluster','start','--n=4'])
+    #testAll()
+
 
 

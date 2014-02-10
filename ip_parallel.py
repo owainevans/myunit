@@ -5,64 +5,6 @@ from IPython.parallel import Client
 from venture.shortcuts import *
 import numpy as np
 import matplotlib.pylab as plt
-import time
-
-copy_ripl_string="""
-def build_exp(exp):
-    'Take expression from directive_list and build the Lisp string'
-    if type(exp)==str:
-        return exp
-    elif type(exp)==dict:
-        return str(exp['value'])
-    else:
-        return '('+str(exp[0])+' ' + ' '.join(map(build_exp,exp[1:])) + ')'
-
-def run_py_directive(ripl,d):
-    'Removes labels'
-    if d['instruction']=='assume':
-        ripl.assume( d['symbol'], build_exp(d['expression']) )
-    elif d['instruction']=='observe':
-        ripl.observe( build_exp(d['expression']), d['value'] )
-    elif d['instruction']=='predict':
-        ripl.predict( build_exp(d['expression']) )
-    
-def copy_ripl(ripl,seed=None):
-    '''copies ripl via di_list to fresh ripl, preserve directive_id
-    by preserving order, optionally set_seed'''
-    di_list = ripl.list_directives()
-    new_ripl = make_church_prime_ripl()
-    if seed: new_ripl.set_seed(seed)
-    [run_py_directive(new_ripl,di) for di in di_list]
-    return new_ripl
-"""
-
-def build_exp(exp):
-    'Take expression from directive_list and build the Lisp string'
-    if type(exp)==str:
-        return exp
-    elif type(exp)==dict:
-        return str(exp['value'])
-    else:
-        return '('+str(exp[0])+' ' + ' '.join(map(build_exp,exp[1:])) + ')'
-
-def run_py_directive(ripl,d):
-    'Removes labels'
-    if d['instruction']=='assume':
-        ripl.assume( d['symbol'], build_exp(d['expression']) )
-    elif d['instruction']=='observe':
-        ripl.observe( build_exp(d['expression']), d['value'] )
-    elif d['instruction']=='predict':
-        ripl.predict( build_exp(d['expression']) )
-    
-def copy_ripl(ripl,seed=None):
-    '''copies ripl via di_list to fresh ripl, preserve directive_id
-    by preserving order, optionally set_seed'''
-    di_list = ripl.list_directives()
-    new_ripl = make_church_prime_ripl()
-    if seed: new_ripl.set_seed(seed)
-    [run_py_directive(new_ripl,di) for di in di_list]
-    return new_ripl
-
 
 
 ### PLAN
@@ -139,10 +81,76 @@ def copy_ripl(ripl,seed=None):
 
 #e.g. s='local'; f=lambda:s; dv.push({'f':f}); %px f() = error (no s var)
 
-def dinv(f,x):
-    for i in range(x):
-        if f(i)==x: return i
-    return False
+copy_ripl_string="""
+def build_exp(exp):
+    'Take expression from directive_list and build the Lisp string'
+    if type(exp)==str:
+        return exp
+    elif type(exp)==dict:
+        return str(exp['value'])
+    else:
+        return '('+str(exp[0])+' ' + ' '.join(map(build_exp,exp[1:])) + ')'
+
+def run_py_directive(ripl,d):
+    'Removes labels'
+    if d['instruction']=='assume':
+        ripl.assume( d['symbol'], build_exp(d['expression']) )
+    elif d['instruction']=='observe':
+        ripl.observe( build_exp(d['expression']), d['value'] )
+    elif d['instruction']=='predict':
+        ripl.predict( build_exp(d['expression']) )
+    
+def copy_ripl(ripl,seed=None):
+    '''copies ripl via di_list to fresh ripl, preserve directive_id
+    by preserving order, optionally set_seed'''
+    di_list = ripl.list_directives()
+    new_ripl = make_church_prime_ripl()
+    if seed: new_ripl.set_seed(seed)
+    [run_py_directive(new_ripl,di) for di in di_list]
+    return new_ripl
+"""
+
+def build_exp(exp):
+    'Take expression from directive_list and build the Lisp string'
+    if type(exp)==str:
+        return exp
+    elif type(exp)==dict:
+        return str(exp['value'])
+    else:
+        return '('+str(exp[0])+' ' + ' '.join(map(build_exp,exp[1:])) + ')'
+
+def run_py_directive(ripl,d):
+    'Removes labels'
+    if d['instruction']=='assume':
+        ripl.assume( d['symbol'], build_exp(d['expression']) )
+    elif d['instruction']=='observe':
+        ripl.observe( build_exp(d['expression']), d['value'] )
+    elif d['instruction']=='predict':
+        ripl.predict( build_exp(d['expression']) )
+    
+def copy_ripl(ripl,seed=None):
+    '''copies ripl via di_list to fresh ripl, preserve directive_id
+    by preserving order, optionally set_seed'''
+    di_list = ripl.list_directives()
+    new_ripl = make_church_prime_ripl()
+    if seed: new_ripl.set_seed(seed)
+    [run_py_directive(new_ripl,di) for di in di_list]
+    return new_ripl
+
+
+
+make_mripl_string='''
+try:
+    mripls.append([]); no_mripls += 1; seeds_lists.append([])
+except:
+    mripls=[ [], ]; no_mripls=1; seeds_lists = [ [], ]'''
+
+def make_mripl_string_function():
+    try:
+        mripls.append([]); no_mripls += 1; seeds_lists.append([])
+    except:
+        mripls=[ [], ]; no_mripls=1; seeds_lists = [ [], ]
+    
 
 def clear_all_engines():
     cli = Client()
@@ -153,12 +161,14 @@ def shutdown():
     
 
 class MRipl():
-    def __init__(self,no_ripls,client=None):
+    
+    def __init__(self,no_ripls,client=None,name=None):
         self.local_ripl = make_church_prime_ripl()
         self.local_ripl.set_seed(0)   # same seed as first remote ripl
         self.no_ripls = no_ripls
         self.seeds = range(self.no_ripls)
         self.total_transitions = 0
+        
         
         self.cli = Client() if not(client) else client
         self.dview = self.cli[:]
@@ -167,16 +177,23 @@ class MRipl():
         self.pids = self.dview.apply(p_getpids)
       
         self.dview.execute('from venture.shortcuts import make_church_prime_ripl')
-        self.dview.execute('ripls = []')
-        self.dview.execute('seeds = []')
-        self.dview.execute(copy_ripl_string) # defines copy_ripl and dependencies
+        self.dview.execute(copy_ripl_string) # defines copy_ripl for add_ripl method
         
-        def mk_ripl(seed):
+        self.dview.execute(make_mripl_string)
+        self.mrid = self.dview.pull('no_mripls')[0] - 1  # all engines should return same number
+        name = 'mripl' if not(name) else name
+        self.name_rid = '%s_%i' % (name,self.mrid)
+
+
+        def mk_ripl(seed,mrid):
+            ripls = mripls[mrid]
             ripls.append( make_church_prime_ripl() )
             ripls[-1].set_seed(seed)
+            
+            seeds = seeds_lists[mrid]
             seeds.append(seed)
             
-        self.dview.map( mk_ripl, self.seeds )
+        self.dview.map( mk_ripl, self.seeds, [self.mrid]*self.no_ripls )
         self.update_ripls_info()
         print self.display_ripls()
         
@@ -187,26 +204,27 @@ class MRipl():
         ## FIXME still has to reset seeds
         self.total_transitions = 0
         self.local_ripl.clear()
-        def f():
+        def f(mrid):
+            ripls=mripls[mrid]; seeds=seeds_lists[mrid]
             [ripl.clear() for ripl in ripls]
             [ripls[i].set_seed(seeds[i]) for i in range(len(ripls))]
-        return  self.dview.apply(f) 
+        return  self.dview.apply(f,self.mrid) 
     
     def assume(self,sym,exp,**kwargs):
         self.local_ripl.assume(sym,exp,**kwargs)
-        def f(sym,exp,**kwargs):
-            return [ripl.assume(sym,exp,**kwargs) for ripl in ripls]
-        return self.lst_flatten( self.dview.apply(f,sym,exp,**kwargs) )
+        def f(sym,exp,mrid,**kwargs):
+            return [ripl.assume(sym,exp,**kwargs) for ripl in mripls[mrid]]
+        return self.lst_flatten( self.dview.apply(f,sym,exp,self.mrid,**kwargs) )
         
     def observe(self,exp,val,label=None):
         self.local_ripl.observe(exp,val,label)
-        def f(exp,val,label): return [ripl.observe(exp,val,label) for ripl in ripls]
-        return self.lst_flatten( self.dview.apply(f,exp,val,label) )
+        def f(exp,val,label,mrid): return [ripl.observe(exp,val,label) for ripl in mripls[mrid]]
+        return self.lst_flatten( self.dview.apply(f,exp,val,label,self.mrid) )
     
-    def predict(self,exp):
-        self.local_ripl.predict(exp)
-        def f(exp): return [ripl.predict(exp) for ripl in ripls]
-        return self.lst_flatten( self.dview.apply(f,exp) )
+    def predict(self,exp,label=None,type=False):
+        self.local_ripl.predict(exp,label,type)
+        def f(exp,label,type,mrid): return [ripl.predict(exp,label,type) for ripl in mripls[mrid]]
+        return self.lst_flatten( self.dview.apply(f,exp,label,type,self.mrid) )
 
     def infer(self,params,block=False):
         if isinstance(params,int):
@@ -216,21 +234,28 @@ class MRipl():
             ##FIXME: consider case of dict more carefully
         self.local_ripl.infer(params)
         
-        def f(params): return [ripl.infer(params) for ripl in ripls]
+        def f(params,mrid): return [ripl.infer(params) for ripl in mripls[mrid]]
 
         if block:
-            return self.lst_flatten( self.dview.apply_sync(f,params) )
+            return self.lst_flatten( self.dview.apply_sync(f,params,self.mrid) )
         else:
-            return self.lst_flatten( self.dview.apply_async(f,params) )
+            return self.lst_flatten( self.dview.apply_async(f,params,self.mrid) )
 
     def report(self,label_or_did,**kwargs):
         self.local_ripl.report(label_or_did,**kwargs)
-        def f(label_or_did,**kwargs):
-            return [ripl.report(label_or_did,**kwargs) for ripl in ripls]
-        return self.lst_flatten( self.dview.apply(f,label_or_did,**kwargs) )
+        def f(label_or_did,mrid,**kwargs):
+            return [ripl.report(label_or_did,**kwargs) for ripl in mripls[mrid]]
+        return self.lst_flatten( self.dview.apply(f,label_or_did,self.mrid, **kwargs) )
+
+    def forget(self,label_or_did):
+        self.local_ripl.forget(label_or_did)
+        def f(label_or_did,mrid):
+            return [ripl.forget(label_or_did) for ripl in mripls[mrid]]
+        return self.lst_flatten( self.dview.apply(f,label_or_did,self.mrid) )
 
             
     def add_ripls(self,no_new_ripls,new_seeds=None):
+        'Add no_new_ripls ripls by mapping a copy_ripl function across engines'
         assert(type(no_new_ripls)==int and no_new_ripls>0)
 
         # could instead check this for each engine we map to
@@ -244,33 +269,36 @@ class MRipl():
             next = max(self.seeds) + 1
             new_seeds = range( next, next+no_new_ripls )
 
-        def add_ripl_engine(seed):
+        def add_ripl_engine(seed,mrid):
             # load the di_list from an existing ripl from ripls
             # we only set_seed after having loaded, so all ripls
             # created by a call to add ripls may have same starting values
+            ripls=mripls[mrid]; seeds=seeds_lists[mrid]
             ripls.append( copy_ripl(ripls[0]) ) # ripls[0] must be present
             ripls[-1].set_seed(seed)
             seeds.append(seed)
             import os;   pid = os.getpid();
             print 'Engine %i created ripl %i' % (pid,seed)
             
-        self.dview.map(add_ripl_engine,new_seeds)
+        self.dview.map(add_ripl_engine,new_seeds,[self.mrid]*no_new_ripls)
         self.update_ripls_info()
         print self.display_ripls()
     
     def display_ripls(self):
         s= sorted(self.ripls_location,key=lambda x:x['pid'])
         ##FIXME improve output
-        str= '(pid, index, seed) : \n' 
-        lst = [(d['pid'],d['index'],d['seed']) for d in s]
-        return s
+        key = ['(pid, index, seed)'] 
+        lst = str + [(d['pid'],d['index'],d['seed']) for d in s]
+        return lst
 
     def update_ripls_info(self):
         'nb: reassigns attributes that store state of pool of ripls'
-        def get_info():
+        def get_info(mrid):
             import os; pid=os.getpid()
-            return [ { 'pid':pid, 'index':index, 'seed':seeds[index] } for index in range( len(ripls) ) ]
-        self.ripls_location = self.lst_flatten( self.dview.apply(get_info) )
+            
+            return [ {'pid':pid, 'index':i, 'seed':seeds_lists[mrid][i],
+                      'ripl':str(ripl)  }  for i,ripl in enumerate( mripls[mrid] ) ]
+        self.ripls_location = self.lst_flatten( self.dview.apply(get_info,self.mrid) )
         self.no_ripls = len(self.ripls_location)
         self.seeds = [ripl['seed'] for ripl in self.ripls_location]
 
@@ -278,7 +306,8 @@ class MRipl():
     def remove_ripls(self,no_rm_ripls):
         'map over the engines to remove a ripl if they have >1'
         no_removed = 0
-        def check_remove(x):
+        def check_remove(x,mrid):
+            ripls = mripls[mrid]
             if len(ripls) >= 2:
                 ripls.pop()
                 return 1
@@ -286,9 +315,10 @@ class MRipl():
                 return 0
        
         while no_removed < no_rm_ripls:
-            res = self.dview.map(check_remove,[1]*no_rm_ripls)
-            no_removed += len(res)
-        
+            result = self.dview.map(check_remove,[1]*no_rm_ripls, ([self.mrid]*no_rm_ripls))
+            no_removed += len(result)
+
+        ## FIXME gotta remove seeds also
         self.update_ripls_info()
         print self.display_ripls()
 
@@ -345,12 +375,18 @@ class MRipl():
         
         
     
+clear_all_engines()
+v = MRipl(4)
+
+
+
+
 
 
 
 
 ## clean version pxlocal
-def pxlocal_clean(line, cell):
+def mr_map(line, cell):
     ip = get_ipython()
     ip.run_cell(cell)
     ip.run_cell_magic("px", line, cell)
@@ -412,7 +448,7 @@ def pxlocal(line, cell):
 
 try:
     ip = get_ipython()
-    ip.register_magic_function(pxlocal, "cell")   
+    ip.register_magic_function(mr_map, "cell")   
 except:
     print 'no ipython'
 
