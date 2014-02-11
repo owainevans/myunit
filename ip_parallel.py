@@ -201,7 +201,7 @@ class MRipl():
         self.pids = self.dview.apply(p_getpids)
       
         self.dview.execute('from venture.shortcuts import make_church_prime_ripl')
-        self.dview.execute(copy_ripl_string) # defines copy_ripl for add_ripl method
+        self.dview.execute(copy_ripl_string) # defines copy_ripl for self.add_ripl method
         
         self.dview.execute(make_mripl_string)
         self.mrid = self.dview.pull('no_mripls')[0] - 1  # all engines should return same number
@@ -350,7 +350,7 @@ class MRipl():
             result = self.dview.map(check_remove,[1]*no_rm_ripls, ([self.mrid]*no_rm_ripls))
             no_removed += len(result)
 
-        ## FIXME gotta remove seeds also
+        ## FIXME should also remove seeds
         self.update_ripls_info()
         print self.display_ripls()
 
@@ -476,8 +476,6 @@ class MRipl():
     
 
 
-
-
 def mk_map_proc_string(mripl_name,mrid,proc_name):
     lhs = 'results[-1] = '
     subs = (mripl_name, mrid, proc_name, proc_name, mrid)
@@ -492,15 +490,18 @@ def add_results_list():
     try: results.append([])
     except: results=[ [], ]
 
+plotting_string = '''
+import matplotlib.pylab as plt
+%matplotlib inline'''
 
-## Current best version
+
 def mr_map(line, cell):
     '%mr_map proc_name mripl_name'
     ip = get_ipython()
     ip.run_cell(cell)  # run cell locally, for local ripl
     ip.run_cell_magic("px", '', cell)
+    ip.run_cell_magic("px", '', plotting_string)  # import plt and select inline
     
-    #print 'ipvar' in globals(); print 'ipvar' in ip.user_ns
     
     proc_name = str(line).split()[0]
     mripl_name =  str(line).split()[1]
@@ -548,6 +549,18 @@ def sp(no_ripls=2):
     v.observe('w2','50.')
     return v
 
+def crp(no_ripls=2):
+    prog='''
+    [assume alpha (uniform_continuous .01 1)]
+    [assume crp (make_crp alpha) ]
+    [assume z (mem (lambda (i) (crp) ) ) ]
+    [assume mu (mem (lambda (z dim) (normal 0 10) ) ) ] 
+    [assume sig (mem (lambda (z dim) (uniform_continuous .1 5) ) ) ]
+    [assume x (mem (lambda (i dim) (normal (mu (z i) (dim)) (sig (zi) (dim)))))]'''
+    v=make_church_prime_ripl()
+    v.execute_program(prog)
+    return v
+    
 def mix(no_ripls=2,k=3):
     v=MRipl(no_ripls)
     v.assume('k',str(k),label='k')
