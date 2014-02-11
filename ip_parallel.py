@@ -573,24 +573,24 @@ def crp(no_ripls=2):
     return prog,v,xs,x,y
 
     
-prog,vsingle,xs,x,y = crp(2)
-v=MRipl(2)
-v.execute_program(prog)
-ns=100
-s0 = [v.predict('(x %i 0)' % i) for i in range(ns) ]
-s1 = [v.predict('(x %i 1)' % i) for i in range(ns) ]
-sz = [v.predict('(z %i)' % i) for i in range(ns) ]
+# prog,vsingle,xs,x,y = crp(2)
+# v=MRipl(2)
+# v.execute_program(prog)
+# ns=100
+# s0 = [v.predict('(x %i 0)' % i) for i in range(ns) ]
+# s1 = [v.predict('(x %i 1)' % i) for i in range(ns) ]
+# sz = [v.predict('(z %i)' % i) for i in range(ns) ]
 
 
-nor = np.random.normal
-xs = list(nor(0,1,20)) + list(nor(5,3,20))
-ys = list(nor(0,1,20)) + list(nor(5,3,20))
-[v.observe( '(x %i 0)' % i, str(x[i]), label=( 'x_%i0' % i) ) for i in range(len(xs))]
-[v.observe( '(x %i 1)' % i, str(x[i]), label=( 'x_%i1' % i) ) for i in range(len(ys))]
+# nor = np.random.normal
+# xs = list(nor(0,1,20)) + list(nor(5,3,20))
+# ys = list(nor(0,1,20)) + list(nor(5,3,20))
+# [v.observe( '(x %i 0)' % i, str(x[i]), label=( 'x_%i0' % i) ) for i in range(len(xs))]
+# [v.observe( '(x %i 1)' % i, str(x[i]), label=( 'x_%i1' % i) ) for i in range(len(ys))]
 
-v.infer(5)
-pz = [v.predict('(z %i)' % i) for i in range(ns) ]
-fig,ax = plt.subplots(2,1)
+# v.infer(5)
+# pz = [v.predict('(z %i)' % i) for i in range(ns) ]
+# fig,ax = plt.subplots(2,1)
 #ax[0].scatter(s0,s1,c=sz)
 #ax[0].scatter(xs,ys,c=pz)
 
