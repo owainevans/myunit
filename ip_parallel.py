@@ -279,6 +279,12 @@ class MRipl():
             return [ripl.forget(label_or_did) for ripl in mripls[mrid]]
         return self.lst_flatten( self.dview.apply(f,label_or_did,self.mrid) )
 
+    def execute_program(self,  program_string, params=None):
+        self.local_ripl.execute_program( program_string, params )
+        def f( program_string, params, mrid):
+            return  [ripl.execute_program( program_string,params) for ripl in mripls[mrid]]
+        return self.lst_flatten( self.dview.apply(f, program_string, params,self.mrid) )
+
     def get_global_logscore(self):
         self.local_ripl.get_global_logscore()
         def f(mrid):
@@ -494,7 +500,6 @@ plotting_string = '''
 import matplotlib.pylab as plt
 %matplotlib inline'''
 
-
 def mr_map(line, cell):
     '%mr_map proc_name mripl_name'
     ip = get_ipython()
@@ -502,13 +507,11 @@ def mr_map(line, cell):
     ip.run_cell_magic("px", '', cell)
     ip.run_cell_magic("px", '', plotting_string)  # import plt and select inline
     
-    
     proc_name = str(line).split()[0]
     mripl_name =  str(line).split()[1]
     mripl = eval(mripl_name,globals(),ip.user_ns)
     ## FIXME: what should globals,locals be for this eval?
     mrid = mripl.mrid
-    #plot = True if str(line).split()[3]=='plot' else False
 
     mripl.dview.execute(add_results_list_string)
     
@@ -551,21 +554,64 @@ def sp(no_ripls=2):
 
 def crp(no_ripls=2):
     prog='''
-    [assume alpha (uniform_continuous .01 1)]
+    [assume alpha (uniform_continuous .9 1)]
     [assume crp (make_crp alpha) ]
     [assume z (mem (lambda (i) (crp) ) ) ]
-    [assume mu (mem (lambda (z dim) (normal 0 10) ) ) ] 
-    [assume sig (mem (lambda (z dim) (uniform_continuous .1 5) ) ) ]
-    [assume x (mem (lambda (i dim) (normal (mu (z i) (dim)) (sig (zi) (dim)))))]'''
+    [assume mu (mem (lambda (z dim) (normal 0 30) ) ) ] 
+    [assume sig (mem (lambda (z dim) (uniform_continuous .1 1) ) ) ]
+    [assume x (mem (lambda (i dim) (normal (mu (z i) dim) (sig (z i) dim)))  ) ]'''
     v=make_church_prime_ripl()
     v.execute_program(prog)
-    return v
+    n=100
+    xs = [v.predict('(x ' + str(i) + ' ' +str(j) +')') for i in range(n) for j in range(2) ]
+    obs = [v.observe('(x ' + str(i) + ' ' +str(j) +')', str(xs[i*(j+1)]) ) for i in range(n) for j in range(2) ]
+    x=np.array(xs)[range(0,len(xs),2)]
+    y=np.array(xs)[range(1,len(xs),2)]
     
-def mix(no_ripls=2,k=3):
-    v=MRipl(no_ripls)
-    v.assume('k',str(k),label='k')
-    v.assume('theta','(mem (lambda (cluster) (normal 0 10) ) )')
-    pass
+    
+    
+    return prog,v,xs,x,y
+
+    
+prog,vsingle,xs,x,y = crp(2)
+v=MRipl(2)
+v.execute_program(prog)
+ns=100
+s0 = [v.predict('(x %i 0)' % i) for i in range(ns) ]
+s1 = [v.predict('(x %i 1)' % i) for i in range(ns) ]
+sz = [v.predict('(z %i)' % i) for i in range(ns) ]
+
+
+nor = np.random.normal
+xs = list(nor(0,1,20)) + list(nor(5,3,20))
+ys = list(nor(0,1,20)) + list(nor(5,3,20))
+[v.observe( '(x %i 0)' % i, str(x[i]), label=( 'x_%i0' % i) ) for i in range(len(xs))]
+[v.observe( '(x %i 1)' % i, str(x[i]), label=( 'x_%i1' % i) ) for i in range(len(ys))]
+
+v.infer(5)
+pz = [v.predict('(z %i)' % i) for i in range(ns) ]
+fig,ax = plt.subplots(2,1)
+#ax[0].scatter(s0,s1,c=sz)
+#ax[0].scatter(xs,ys,c=pz)
+
+#plt.show()
+
+
+# %%mr_map crp_plot v
+# n=20
+# def crp_plot(v):
+#     x0 = [v.sample( '(x %i 0)' % i ) for i in range(n) ]
+#     x1 = [v.sample( '(x %i 1' % i ) for i in range(n) ]
+#     zs = [v.sample('(z %i)' % i) for i in range(n) ]
+#     fig,ax = plt.subplots(2)
+#     ax[0].scatter(x0,x1,c=zs)
+    
+#     px0 = [v.predict( '(x %i 0)' % i ) for i in range(n,2*n) ]
+#     px1 = [v.predict( '(x %i 1)' % i ) for i in range(n,2*n) ]
+#     pzs = [v.predict('(z %i)' % i) for i in range(n,2*n) ]
+#     ax[1].scatter(px0,px1,c=pzs)
+#     return zs,pzs
+
 
 
 #clear_all_engines()
