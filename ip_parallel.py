@@ -9,16 +9,38 @@ from scipy.stats import kde
 gaussian_kde = kde.gaussian_kde
 
 ### PLAN
+
+#TODO 1
+#- connect to EC2 and create some convenience features for doing so
+
+# - do plotting and unit tests for map, write documentation and examples for it
+
+# - do mapping example for CRP 
+
+# - ask about the namespace issues for multiripls
+
+# - too many methods, find some way to structure better.
+
+
+# TODO 2
 # 1. make display work and plot with discrete and cts inputs. 
 #   so the crp example (maybe with ellipsoids). 
 #     -- should add snapshot (with total transitions), as display will depend on it.
+
+# 2. probes and scatter?
+
+# 2.5. plotting for map
+
+# - better type mathod
+
+# - work out  
 
 # 3. have the local ripl be optional
 
 #4. map function should intercept infers to update total-transitions
 
 # 5. add all directives
-# 6. record no_total_transitions (with snapshot)
+
 # 7. want the user to be able to specify a cluster (a Client() output
 # object).
 # 8. async should be an option for plotting as you might have lots
@@ -26,9 +48,9 @@ gaussian_kde = kde.gaussian_kde
 # write somethign that causes crashes. (blocking is enemy of 
 # interactive development)
 
-# In Master: clear shouldn't destroy the seed (delegate new seed after clear)
+# 9. In Master: clear shouldn't destroy the seed (delegate new seed after clear)
 
-# continuous inference
+# 10. continuous inference
 
 
 # Notes on Parallel IPython
@@ -146,6 +168,7 @@ try:
 except:
     mripls=[ [], ]; no_mripls=1; seeds_lists = [ [], ]'''
 
+
 def make_mripl_string_function():
     try:
         mripls.append([]); no_mripls += 1; seeds_lists.append([])
@@ -202,7 +225,9 @@ class MRipl():
     def lst_flatten(self,l): return [el for subl in l for el in subl]
 
     def clear(self):
-        ## FIXME still has to reset seeds
+        ## FIXME still has to reset seeds. note that resetting seeds means
+        ## re-running code after a clear will give identical results (add a 
+        # convenient way around this)
         self.total_transitions = 0
         self.local_ripl.clear()
         def f(mrid):
@@ -468,9 +493,6 @@ def add_results_list():
     except: results=[ [], ]
 
 
-def f(s):
-    return eval(s)
-
 ## Current best version
 def mr_map(line, cell):
     '%mr_map proc_name mripl_name'
@@ -533,7 +555,7 @@ def mix(no_ripls=2,k=3):
     pass
 
 
-clear_all_engines()
+#clear_all_engines()
 # v=sp(4)
 
 # res=ip.run_cell_magic("mr_map",'foo v','def foo(r): return r.predict("r")')
