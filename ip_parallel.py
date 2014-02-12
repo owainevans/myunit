@@ -7,7 +7,7 @@ import numpy as np
 import matplotlib.pylab as plt
 from scipy.stats import kde
 gaussian_kde = kde.gaussian_kde
-import subprocess
+import subprocess,time
 ### PLAN
 
 #TODO 1
@@ -182,8 +182,9 @@ def clear_all_engines():
 def shutdown():
     cli = Client(); cli.shutdown()
 
-def start_engines(no_engines):
+def start_engines(no_engines,sleeptime=10):
     start = subprocess.Popen(['ipcluster', 'start', '--n=%i' % no_engines,'&'])
+    time.sleep(sleeptime)
    
 def stop_engines(): 
     stop=subprocess.Popen(['ipcluster', 'stop'])
@@ -500,6 +501,8 @@ class MRipl():
     
 
 
+## mr_map magic utility functions
+
 def mk_map_proc_string(mripl_name,mrid,proc_name):
     lhs = 'results[-1] = '
     subs = (mripl_name, mrid, proc_name, proc_name, mrid)
@@ -510,36 +513,39 @@ add_results_list_string = '''
 try: results.append([])
 except: results=[ [], ]'''
 
-def add_results_list():
-    try: results.append([])
-    except: results=[ [], ]
-
-plotting_string = '''
+set_plotting_string = '''
 import matplotlib.pylab as plt
 %matplotlib inline'''
 
 def mr_map(line, cell):
     '%mr_map proc_name mripl_name'
     ip = get_ipython()
-    ip.run_cell(cell)  # run cell locally, for local ripl
-    ip.run_cell_magic("px", '', cell)
-    ip.run_cell_magic("px", '', plotting_string)  # import plt and select inline
     
+    # get inputs
     proc_name = str(line).split()[0]
     mripl_name =  str(line).split()[1]
-    mripl = eval(mripl_name,globals(),ip.user_ns)
-    ## FIXME: what should globals,locals be for this eval?
+    mripl = eval(mripl_name,globals(),ip.user_ns) ## FIXME: what should globals,locals be?
     mrid = mripl.mrid
 
-    mripl.dview.execute(add_results_list_string)
+    mripl.dview.execute(set_plotting_string) # matplotlib, inlining
+    mripl.dview.execute(add_results_list_string)    
+    ip.run_cell(cell)  # run cell locally, for local ripl (FIXME is the namespace stuff s.t. this works?)
+    ip.run_cell_magic("px", '', cell)  #FIXME, dview.execute is more general, less ipy dependent
     
     map_proc_string = mk_map_proc_string(mripl_name,mrid,proc_name)
-    mripl.dview.execute(map_proc_string)
+    mripl.dview.execute(map_proc_string)  # execute the proc across all ripls
 
-    result = mripl.dview.apply( lambda: results[-1])
+    result = mripl.dview.apply( lambda: results[-1])  # pull the latest result, i.e. result of map_proc_str
     label = result[0]['mripl_mrid_proc']
     engs = [eng['output'] for eng in result]
     results_by_ripl = [ ripl for ripls in engs for ripl in ripls]
+    
+    # store in user_ns local
+    if str(line).split()[2].startswith('st'):
+        var=str(line).split()[2]
+        store_str = '%s = _' % var
+    
+        ip.run_cell(store_str)
     return label,results_by_ripl
 
 
@@ -591,51 +597,6 @@ def crp(no_ripls=2):
     return prog,v,xs,x,y
 
     
-# prog,vsingle,xs,x,y = crp(2)
-# v=MRipl(2)
-# v.execute_program(prog)
-# ns=100
-# s0 = [v.predict('(x %i 0)' % i) for i in range(ns) ]
-# s1 = [v.predict('(x %i 1)' % i) for i in range(ns) ]
-# sz = [v.predict('(z %i)' % i) for i in range(ns) ]
-
-
-# nor = np.random.normal
-# xs = list(nor(0,1,20)) + list(nor(5,3,20))
-# ys = list(nor(0,1,20)) + list(nor(5,3,20))
-# [v.observe( '(x %i 0)' % i, str(x[i]), label=( 'x_%i0' % i) ) for i in range(len(xs))]
-# [v.observe( '(x %i 1)' % i, str(x[i]), label=( 'x_%i1' % i) ) for i in range(len(ys))]
-
-# v.infer(5)
-# pz = [v.predict('(z %i)' % i) for i in range(ns) ]
-# fig,ax = plt.subplots(2,1)
-#ax[0].scatter(s0,s1,c=sz)
-#ax[0].scatter(xs,ys,c=pz)
-
-#plt.show()
-
-
-# %%mr_map crp_plot v
-# n=20
-# def crp_plot(v):
-#     x0 = [v.sample( '(x %i 0)' % i ) for i in range(n) ]
-#     x1 = [v.sample( '(x %i 1' % i ) for i in range(n) ]
-#     zs = [v.sample('(z %i)' % i) for i in range(n) ]
-#     fig,ax = plt.subplots(2)
-#     ax[0].scatter(x0,x1,c=zs)
-    
-#     px0 = [v.predict( '(x %i 0)' % i ) for i in range(n,2*n) ]
-#     px1 = [v.predict( '(x %i 1)' % i ) for i in range(n,2*n) ]
-#     pzs = [v.predict('(z %i)' % i) for i in range(n,2*n) ]
-#     ax[1].scatter(px0,px1,c=pzs)
-#     return zs,pzs
-
-
-
-#clear_all_engines()
-# v=sp(4)
-
-# res=ip.run_cell_magic("mr_map",'foo v','def foo(r): return r.predict("r")')
 
     
 
