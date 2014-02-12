@@ -528,11 +528,16 @@ def mr_map(line, cell):
     mripl = eval(mripl_name,globals(),ip.user_ns) ## FIXME: what should globals,locals be?
     mrid = mripl.mrid
 
-    mripl.dview.execute(set_plotting_string) # matplotlib, inlining
-    mripl.dview.execute(add_results_list_string)    
-    ip.run_cell(cell)  # run cell locally, for local ripl (FIXME is the namespace stuff s.t. this works?)
+    if len(str(line).split()) > 3:
+        ip.run_cell(cell)  # run cell locally, for local ripl (FIXME is the namespace stuff s.t. this works?)
+        eval( '%s( %s.local_ripl )' % (proc_name,mripl_name), globals(), ip.user_ns) # eval on local ripl 
+
     ip.run_cell_magic("px", '', cell)  #FIXME, dview.execute is more general, less ipy dependent
     
+    ## FIXME: order of these commands (run_cell_mag, execute(plotting)) seems to matter. why?
+    mripl.dview.execute(set_plotting_string) # matplotlib, inlining
+    mripl.dview.execute(add_results_list_string)    
+
     map_proc_string = mk_map_proc_string(mripl_name,mrid,proc_name)
     mripl.dview.execute(map_proc_string)  # execute the proc across all ripls
 

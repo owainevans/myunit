@@ -163,7 +163,6 @@ def testMulti():
     assert all([v.total_transitions== 0 for v in vs])
     assert  [v.list_directives() == [ [] ] * no_rips for v in vs]
 
-
     ls = [v.predict('3') for v in vs]
     assert all( [ ls[0]==i for i in ls] )
 
@@ -176,6 +175,8 @@ def testMulti():
     [v.infer(100) for v in vs]
     ls=[v.report('x') for v in vs]
     assert all( [ set(ls[0])==set(i) for i in ls] ) # because seeds the same
+
+
 
 
 
