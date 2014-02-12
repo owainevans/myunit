@@ -7,7 +7,7 @@ import numpy as np
 import matplotlib.pylab as plt
 from scipy.stats import kde
 gaussian_kde = kde.gaussian_kde
-
+import subprocess
 ### PLAN
 
 #TODO 1
@@ -182,7 +182,14 @@ def clear_all_engines():
 
 def shutdown():
     cli = Client(); cli.shutdown()
+
+def start_engines(no_engines):
+    subprocess.Popen(['ipcluster', 'start', '--n=%i' % no_engines,'&'])
     
+def stop_engines(): 
+    subprocess.Popen(['ipcluster', 'stop'])
+
+start_engines(2)
 
 class MRipl():
     

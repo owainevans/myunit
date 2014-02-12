@@ -107,27 +107,28 @@ def testDirectives():
 ## other directives
     clear_all_engines(); v=MRipl(2)
     test_v = make_church_prime_ripl(); test_v.set_seed(0)
-    vs = [v, v.local_ripl, test_v]
+    vs = [v, test_v]
     [r.assume('x','(normal 0 1)') for r in vs]
+
     [r.observe('(normal x .01)','1',label='obs') for r in vs]
     [r.infer(100) for r in vs]
     [r.forget('obs') for r in vs]
     [r.infer(100) for r in vs]
     pred = [r.predict('x') for r in vs]
-    assert pred[1] in pred[0] and pred[2] in pred[0], 'forget'
+    assert pred[1] in pred[0] and v.local_ripl.predict('x') in pred[0], 'forget'
 
     log = [r.get_global_logscore() for r in vs]
-    assert log[1] in log[0] and log[2] in log[0], 'get_global_log'
+    assert log[1] in log[0] and v.local_ripl.get_global_logscore() in log[0], 'get_global_log'
 
     [r.clear() for r in vs]
-    ld = [r.list_directives() for r in vs]
+    ld = [r.list_directives() for r in vs] + [v.local_ripl.list_directives() ]
     assert ld==[ [[],[]], [], [] ], 'clear_listdir'
     # 2 is number of ripls in v (above)
 
     [r.clear() for r in vs]
     prog = '[assume x 1]'
     ex = [r.execute_program(prog) for r in vs]
-    assert ex== [ [1,1], 1,1]
+    assert ex[0][0] == ex[0][1] == ex[1]
     
 
 
