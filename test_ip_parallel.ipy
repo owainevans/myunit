@@ -104,6 +104,34 @@ def testDirectives():
     assert( np.mean(test_x3) < np.mean(test_x) )
     assert( not( v.no_ripls>10 and np.mean(test_x3) > 50) ) # may be too tight
 
+## other directives
+    clear_all_engines(); v=MRipl(2)
+    test_v = make_church_prime_ripl(); test_v.set_seed(0)
+    vs = [v, v.local_ripl, test_v]
+    [r.assume('x','(normal 0 1)') for r in vs]
+    [r.observe('(normal x .01)','1',label='obs') for r in vs]
+    [r.infer(100) for r in vs]
+    [r.forget('obs') for r in vs]
+    [r.infer(100) for r in vs]
+    pred = [r.predict('x') for r in vs]
+    assert pred[1] in pred[0] and pred[2] in pred[0], 'forget'
+
+    log = [r.get_global_logscore() for r in vs]
+    assert log[1] in log[0] and log[2] in log[0], 'get_global_log'
+
+    [r.clear() for r in vs]
+    ld = [r.list_directives() for r in vs]
+    assert ld==[ [[],[]], [], [] ], 'clear_listdir'
+    # 2 is number of ripls in v (above)
+
+    [r.clear() for r in vs]
+    prog = '[assume x 1]'
+    ex = [r.execute_program(prog) for r in vs]
+    assert ex== [ [1,1], 1,1]
+    
+
+
+
 
 def testSnapshot():
     v=MRipl(4)
@@ -122,6 +150,20 @@ def testMulti():
     clear_all_engines()
     no_rips = 4; no_mrips=2;
     vs = [MRipl(no_rips) for i in range(no_mrips) ]
+    
+    #test mrids unique
+    assert len(set([v.mrid for v in vs]) ) == len(vs)
+
+    # test with different models
+    [v.assume('x',str(i)) for v,i in zip(vs,[0,1]) ]
+    assert all([v.sample('x') == ([i]*no_rips) for v,i in zip(vs,[0,1]) ] )
+
+    # test clear
+    [v.clear() for v in vs]
+    assert all([v.total_transitions== 0 for v in vs])
+    assert  [v.list_directives() == [ [] ] * no_rips for v in vs]
+
+
     ls = [v.predict('3') for v in vs]
     assert all( [ ls[0]==i for i in ls] )
 

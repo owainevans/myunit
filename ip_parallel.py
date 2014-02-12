@@ -193,7 +193,6 @@ class MRipl():
         self.seeds = range(self.no_ripls)
         self.total_transitions = 0
         
-        
         self.cli = Client() if not(client) else client
         self.dview = self.cli[:]
         self.dview.block = True
@@ -290,7 +289,19 @@ class MRipl():
         def f(mrid):
             return [ripl.get_global_logscore() for ripl in mripls[mrid]]
         return self.lst_flatten( self.dview.apply(f,self.mrid) )
-            
+
+    def sample(self,exp,type=False):
+        self.local_ripl.sample(exp,type)
+        def f(exp,type,mrid):
+               return [ripl.sample(exp,type) for ripl in mripls[mrid] ]
+        return self.lst_flatten( self.dview.apply(f,exp,type,self.mrid) )
+
+    def list_directives(self,type=False):
+        self.local_ripl.list_directives(type)
+        def f(type,mrid):
+               return [ripl.list_directives(type) for ripl in mripls[mrid] ]
+        return self.lst_flatten( self.dview.apply(f,type,self.mrid) )
+               
     def add_ripls(self,no_new_ripls,new_seeds=None):
         'Add no_new_ripls ripls by mapping a copy_ripl function across engines'
         assert(type(no_new_ripls)==int and no_new_ripls>0)
