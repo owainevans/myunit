@@ -503,11 +503,10 @@ class MRipl():
 
 ## mr_map magic utility functions
 
+def lst_flatten(l): return [el for subl in l for el in subl]
+
 def mk_map_proc_string(mripl_name,mrid,proc_name):
-    lhs = 'results[-1] = '
-    subs = (mripl_name, mrid, proc_name, proc_name, mrid)
-    rhs = '{"mripl_mrid_proc":("%s",%i,"%s"), "output": [%s(r) for r in mripls[%i]] }' % subs
-    return lhs+rhs
+    return 'results[-1] = [%s(ripl) for ripl in mripls[%i]] ' % ( proc_name, mrid)
     
 add_results_list_string = '''
 try: results.append([])
@@ -518,8 +517,10 @@ import matplotlib.pylab as plt
 %matplotlib inline'''
 
 def mr_map(line, cell):
-    '%mr_map proc_name mripl_name'
+    'syntax: %%mr_map proc_name mripl_name [optional: store_variable_name] '
     ip = get_ipython()
+
+    assert len(str(line).split()) >= 2, 'Error. Syntax: %%mr_map proc_name mripl_name [optional: store_variable_name] ' 
     
     # get inputs
     proc_name = str(line).split()[0]
@@ -535,18 +536,17 @@ def mr_map(line, cell):
     map_proc_string = mk_map_proc_string(mripl_name,mrid,proc_name)
     mripl.dview.execute(map_proc_string)  # execute the proc across all ripls
 
-    result = mripl.dview.apply( lambda: results[-1])  # pull the latest result, i.e. result of map_proc_str
-    label = result[0]['mripl_mrid_proc']
-    engs = [eng['output'] for eng in result]
-    results_by_ripl = [ ripl for ripls in engs for ripl in ripls]
+    outputs_by_ripl = lst_flatten( mripl.dview.apply( lambda: results[-1]) ) # pull the result of map_proc
+
+    out_dict = {'info':{'mripl':mripl_name,'proc':proc_name}, 'out':outputs_by_ripl }
     
     # store in user_ns local
-    if str(line).split()[2].startswith('st'):
-        var=str(line).split()[2]
-        store_str = '%s = _' % var
-    
-        ip.run_cell(store_str)
-    return label,results_by_ripl
+    if len(str(line).split()) > 2: 
+        var_name = str(line).split()[2]
+        ip.push({ var_name: out_dict } )
+        print '%s = ' % var_name
+
+    return out_dict
 
 
 ## Consider Version where we use execute instead of %px
