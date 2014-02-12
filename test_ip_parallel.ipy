@@ -1,7 +1,10 @@
 from venture.shortcuts import make_church_prime_ripl
 import time
-%run ~/myunit/ip_parallel.py
-
+try:
+    get_ipython()
+    #%run ~/myunit/ip_parallel.py
+except:
+    execfile('ip_parallel.py')
 
 def testCopyFunction():
     clear_all_engines()
@@ -22,7 +25,6 @@ def testParallelCopyFunction():
     dv.execute("v2 = copy_ripl(v,seed=1)" )
     dv.execute("true_assert = [build_exp(di['expression']) for di in v.list_directives() ] ==  [build_exp(di['expression']) for di in copy_ripl(v).list_directives() ]")
     assert all(dv['true_assert'])
-
 
 
 ## TEST adding and removing ripls and pulling info about ripls to mripl
@@ -178,10 +180,17 @@ def testMulti():
 
 
 
+### Tests to add
+# include NB test as well as these, try to test graphing somehow and isolate weird behavior
+# (test on different browsers!)
+
+# do tests in notebook comparing results of mag and non-mag versions
+
+# run tests solely in Python interpreter
+
 
 
 tests = [testMulti, testSnapshot, testDirectives,testCopyRipl,testAddRemoveSize,testParallelCopyFunction,testCopyFunction]
-
 
 
 def testAll(new_engines=False,sleeptime=15):
@@ -193,9 +202,9 @@ def testAll(new_engines=False,sleeptime=15):
         [t() for t in tests]
         stop_engines(); time.sleep(5)
     [t() for t in tests]
-    return 'test all complete'
+    return 'testAll complete'
 
-
+testAll()
 #if __name__ == '__main__':
     # import subprocess
     # subprocess.call(['ipcluster','start','--n=4'])

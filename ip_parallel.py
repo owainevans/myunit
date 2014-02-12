@@ -12,15 +12,11 @@ import subprocess,time
 
 #TODO 1
 #- connect to EC2 and create some convenience features for doing so
-
-# - do plotting and unit tests for map, write documentation and examples for it
-
-# - do mapping example for CRP 
-
 # - ask about the namespace issues for multiripls
 
-# - too many methods, find some way to structure better.
+# test waiting on infer, test interactive mode, where an engine or ripl dies and you recover
 
+# - too many methods, find some way to structure better.
 
 # TODO 2
 # 1. make display work and plot with discrete and cts inputs. 
@@ -29,15 +25,13 @@ import subprocess,time
 
 # 2. probes and scatter?
 
-# 2.5. plotting for map
-
 # - better type mathod
 
 # - work out  
 
 # 3. have the local ripl be optional
 
-#4. map function should intercept infers to update total-transitions
+#4. map function should intercept infers to update total-transitions?
 
 # 5. add all directives
 
@@ -51,6 +45,8 @@ import subprocess,time
 # 9. In Master: clear shouldn't destroy the seed (delegate new seed after clear)
 
 # 10. continuous inference
+
+
 
 
 # Notes on Parallel IPython
@@ -399,6 +395,7 @@ class MRipl():
     def type_list(self,lst):
         if any([type(lst[0])!=type(i) for i in lst]):
             return 'mixed'
+            ## give user a warning and tell them if you cast or leave out some data
         elif isinstance(lst[0],float):
             return 'float'
         elif isinstance(lst[0],int):
@@ -517,22 +514,23 @@ import matplotlib.pylab as plt
 %matplotlib inline'''
 
 def mr_map(line, cell):
-    'syntax: %%mr_map proc_name mripl_name [optional: store_variable_name] '
+    'syntax: %%mr_map proc_name mripl_name [optional: store_variable_name, local_ripl] '
     ip = get_ipython()
 
     assert len(str(line).split()) >= 2, 'Error. Syntax: %%mr_map proc_name mripl_name [optional: store_variable_name] ' 
-    
+
     # get inputs
     proc_name = str(line).split()[0]
     mripl_name =  str(line).split()[1]
     mripl = eval(mripl_name,globals(),ip.user_ns) ## FIXME: what should globals,locals be?
     mrid = mripl.mrid
 
+    ## FIXME: local_ripl will diverge from remotes if we don't have a third argument
     if len(str(line).split()) > 3:
         ip.run_cell(cell)  # run cell locally, for local ripl (FIXME is the namespace stuff s.t. this works?)
         eval( '%s( %s.local_ripl )' % (proc_name,mripl_name), globals(), ip.user_ns) # eval on local ripl 
 
-    ip.run_cell_magic("px", '', cell)  #FIXME, dview.execute is more general, less ipy dependent
+    ip.run_cell_magic("px", '', cell)  #FIXME, dview.execute is more general?
     
     ## FIXME: order of these commands (run_cell_mag, execute(plotting)) seems to matter. why?
     mripl.dview.execute(set_plotting_string) # matplotlib, inlining
@@ -545,13 +543,53 @@ def mr_map(line, cell):
 
     out_dict = {'info':{'mripl':mripl_name,'proc':proc_name}, 'out':outputs_by_ripl }
     
-    # store in user_ns local
+    # store in user_ns under input var_name
     if len(str(line).split()) > 2: 
         var_name = str(line).split()[2]
         ip.push({ var_name: out_dict } )
         print '%s = ' % var_name
 
     return out_dict
+
+
+
+
+## all version where user hands a function (which has to only include variables that 
+# are in the %px namespace
+def mr_map_nomagic(line, cell, mripl,user_proc=None):
+    'syntax: %%mr_map proc_name mripl_name [optional: store_variable_name, local_ripl] '
+    
+    assert len(str(line).split()) >= 2, 'Error. Syntax: %%mr_map proc_name mripl_name [optional: store_variable_name] ' 
+
+    # get inputs
+    proc_name = str(line).split()[0]
+    mripl_name =  str(line).split()[1]
+    mrid = mripl.mrid
+
+    ## FIXME: local_ripl will diverge from remotes if we don't have a third argument
+    if len(str(line).split()) > 3:
+        ip.run_cell(cell)  # run cell locally, for local ripl (FIXME is the namespace stuff s.t. this works?)
+        eval( '%s( %s.local_ripl )' % (proc_name,mripl_name), globals(), ip.user_ns) # eval on local ripl 
+    
+    mripl.dview.execute(cell)
+    ip.run_cell_magic("px", '', cell)  #FIXME, dview.execute is more general?
+    
+    ## FIXME: order of these commands (run_cell_mag, execute(plotting)) seems to matter. why?
+    mripl.dview.execute(set_plotting_string) # matplotlib, inlining
+    mripl.dview.execute(add_results_list_string)    
+
+    map_proc_string = mk_map_proc_string(mripl_name,mrid,proc_name)
+    mripl.dview.execute(map_proc_string)  # execute the proc across all ripls
+
+    outputs_by_ripl = lst_flatten( mripl.dview.apply( lambda: results[-1]) ) # pull the result of map_proc
+
+    out_dict = {'info':{'mripl':mripl_name,'proc':proc_name}, 'out':outputs_by_ripl }
+    
+    return out_dict
+
+
+
+
 
 
 ## Consider Version where we use execute instead of %px
@@ -596,9 +634,6 @@ def crp(no_ripls=2):
     obs = [v.observe('(x ' + str(i) + ' ' +str(j) +')', str(xs[i*(j+1)]) ) for i in range(n) for j in range(2) ]
     x=np.array(xs)[range(0,len(xs),2)]
     y=np.array(xs)[range(1,len(xs),2)]
-    
-    
-    
     return prog,v,xs,x,y
 
     
