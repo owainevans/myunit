@@ -175,7 +175,6 @@ def make_mripl_string_function():
     except:
         mripls=[ [], ]; no_mripls=1; seeds_lists = [ [], ]
     
-
 def clear_all_engines():
     cli = Client()
     cli.clear(block=True)
@@ -184,12 +183,13 @@ def shutdown():
     cli = Client(); cli.shutdown()
 
 def start_engines(no_engines):
-    subprocess.Popen(['ipcluster', 'start', '--n=%i' % no_engines,'&'])
-    
+    start = subprocess.Popen(['ipcluster', 'start', '--n=%i' % no_engines,'&'])
+   
 def stop_engines(): 
-    subprocess.Popen(['ipcluster', 'stop'])
+    stop=subprocess.Popen(['ipcluster', 'stop'])
+    stop.wait()
 
-start_engines(2)
+
 
 class MRipl():
     
