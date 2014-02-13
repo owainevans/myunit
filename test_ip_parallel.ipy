@@ -1,5 +1,6 @@
 from venture.shortcuts import make_church_prime_ripl
 import time,os
+import numpy as np
 
 file_dir = os.path.dirname(os.path.realpath(__file__))
 #loc_ip_parallel = file_dir.split('/')
@@ -185,15 +186,19 @@ def testMulti():
 
 
 def testMrMap():
-    clear_all_engines():
+    clear_all_engines()
     no_rips = 2
     v = MRipl(no_rips)
     def f(ripl):
         import numpy
-        ys = numpy.log([1 2 3 4])
+        ys = numpy.power([1, 2, 3, 4],2)
         return [ripl.predict(str(y)) for y in ys]
     out_dict = mr_map_nomagic(v,f)
+    assert out_dict['info']['mripl'] == v.name_mrid
+    assert all( np.array( out_dict['out'][0] ) == np.power([1, 2, 3, 4],2) )
+
     
+
 
 ### Tests to add
 # include NB test as well as these, try to test graphing somehow and isolate weird behavior
@@ -205,7 +210,7 @@ def testMrMap():
 
 
 
-tests = [testMulti, testSnapshot, testDirectives,testCopyRipl,testAddRemoveSize,testParallelCopyFunction,testCopyFunction]
+tests = [testMrMap, testMulti, testSnapshot, testDirectives,testCopyRipl,testAddRemoveSize,testParallelCopyFunction,testCopyFunction]
 
 
 def testAll(new_engines=False,sleeptime=15):
@@ -219,7 +224,7 @@ def testAll(new_engines=False,sleeptime=15):
     [t() for t in tests]
     return 'testAll complete'
 
-testAll()
+
 #if __name__ == '__main__':
     # import subprocess
     # subprocess.call(['ipcluster','start','--n=4'])

@@ -566,7 +566,7 @@ def mr_map_nomagic(mripl,proc):
     mripl.dview.execute( 'results_%s =  [ %s(ripl) for ripl in mripls[%i] ] ' % (proc_name, proc_name, mripl.mrid) )
 
     outputs_by_ripl = lst_flatten( mripl.dview['results_%s' % proc_name] )
-
+    # could also pass the procedure out
     out_dict = {'info':{'mripl':mripl.name_mrid,'proc':proc_name}, 'out':outputs_by_ripl }
     
     return out_dict
