@@ -552,12 +552,10 @@ def mr_map(line, cell):
     return out_dict
 
 
-
-
 ## all version where user hands a function (which has to only include variables that 
 # are in the %px namespace
 def mr_map_nomagic(mripl,proc):
-    'Push proc into engine namespaces. Then use execute to run on all ripls.'
+    'Push proc into engine namespaces. Use execute to map across ripls.'
     proc_name = 'user_proc_' + str( abs(hash(proc)) )
     mripl.dview.push( { proc_name: proc} )
     mripl.dview.execute(set_plotting_string) # matplotlib, inlining

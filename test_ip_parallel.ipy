@@ -187,7 +187,7 @@ def testMulti():
 
 def testMrMap():
     clear_all_engines()
-    no_rips = 2
+    no_rips = 4
     v = MRipl(no_rips)
     def f(ripl):
         import numpy
@@ -196,7 +196,33 @@ def testMrMap():
     out_dict = mr_map_nomagic(v,f)
     assert out_dict['info']['mripl'] == v.name_mrid
     assert all( np.array( out_dict['out'][0] ) == np.power([1, 2, 3, 4],2) )
+    
+    # compare using map to get poisson from all ripls, vs. using normal diretive
+    v.clear()
+    def g(ripl):
+        mean = 10
+        return ripl.predict('(poisson %i)' % mean)
+    out_dict2 = mr_map_nomagic(v,g)
+    assert out_dict2['info']['mripl'] == v.name_mrid
+    
+    vv=MRipl(no_rips); mean = 10
+    vv_out = vv.predict('(poisson %i)' % mean)
+    assert all( out_dict2['out'] == vv_out )
 
+    ## interaction with add_ripls
+    v.clear()
+    v.add_ripls(2)
+    out_dict3 = mr_map_nomagic(v,g)
+    # new seeds the same as old
+    assert set(out_dict2['out']).issubset( set(out_dict3['out']) ) 
+    
+
+    
+
+
+
+
+        
     
 
 
