@@ -10,6 +10,29 @@ gaussian_kde = kde.gaussian_kde
 import subprocess,time
 ### PLAN
 
+
+# for being on master
+# doc_strings
+# todo list
+# need to get the right file path for the fie. can we do this by importing the 
+# module first and using the same function to ask where the file is
+# need to load up engines before this will work. which mgiht be troublesome, but
+# good to iron our problems early
+
+todo list:
+1. get to work with import instead of execute
+2. push and pull ripls: pass a ripl to the constructor. pull all ripls
+   from the mripl. use the functions included but retain labels and 
+   any other arguments of a directive. also consider via pickling (v_lite)
+   (make it easy to save at least one of current ripls to file)
+3. improve type case-switch and support for mixed types
+4. add continuous inference and write some unit tests for it
+5. have local ripl be optional (and update tests that depend on it)
+6. remove plotting from probes and have plotting that can do timeseries
+7. think about refactoring so the mripl object has fewer methods
+
+
+
 #TODO 1
 #- connect to EC2 and create some convenience features for doing so
 # - ask about the namespace issues for multiripls
@@ -100,6 +123,27 @@ import subprocess,time
 
 #e.g. s='local'; f=lambda:s; dv.push({'f':f}); %px f() = error (no s var)
 
+
+def clear_all_engines():
+    cli = Client()
+    cli.clear(block=True)
+
+def shutdown():
+    cli = Client(); cli.shutdown()
+
+def start_engines(no_engines,sleeptime=10):
+    start = subprocess.Popen(['ipcluster', 'start', '--n=%i' % no_engines,'&'])
+    time.sleep(sleeptime)
+   
+def stop_engines(): 
+    stop=subprocess.Popen(['ipcluster', 'stop'])
+    stop.wait()
+
+
+
+
+
+
 copy_ripl_string="""
 def build_exp(exp):
     'Take expression from directive_list and build the Lisp string'
@@ -156,8 +200,6 @@ def copy_ripl(ripl,seed=None):
     [run_py_directive(new_ripl,di) for di in di_list]
     return new_ripl
 
-
-
 make_mripl_string='''
 try:
     mripls.append([]); no_mripls += 1; seeds_lists.append([])
@@ -170,22 +212,6 @@ def make_mripl_string_function():
         mripls.append([]); no_mripls += 1; seeds_lists.append([])
     except:
         mripls=[ [], ]; no_mripls=1; seeds_lists = [ [], ]
-    
-def clear_all_engines():
-    cli = Client()
-    cli.clear(block=True)
-
-def shutdown():
-    cli = Client(); cli.shutdown()
-
-def start_engines(no_engines,sleeptime=10):
-    start = subprocess.Popen(['ipcluster', 'start', '--n=%i' % no_engines,'&'])
-    time.sleep(sleeptime)
-   
-def stop_engines(): 
-    stop=subprocess.Popen(['ipcluster', 'stop'])
-    stop.wait()
-
 
 
 class MRipl():

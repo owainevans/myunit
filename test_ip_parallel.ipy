@@ -2,6 +2,9 @@ from venture.shortcuts import make_church_prime_ripl
 import time,os
 import numpy as np
 
+#import venture.venturemagics.ip_parallel as ip_parallel
+path = os.path.dirname(ip_parallel.__file__)
+
 file_dir = os.path.dirname(os.path.realpath(__file__))
 #loc_ip_parallel = file_dir.split('/')
 try:
@@ -10,6 +13,9 @@ try:
     #%run ~/myunit/ip_parallel.py
 except:
     execfile('ip_parallel.py')
+
+## FIRE UP ENGINES
+
 
 def testCopyFunction():
     clear_all_engines()
