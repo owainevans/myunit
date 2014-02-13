@@ -1,7 +1,11 @@
 from venture.shortcuts import make_church_prime_ripl
-import time
+import time,os
+
+file_dir = os.path.dirname(os.path.realpath(__file__))
+#loc_ip_parallel = file_dir.split('/')
 try:
-    get_ipython()
+    ip = get_ipython()
+    ip.run_line_magic("run",file_dir+'/ip_parallel.py')
     #%run ~/myunit/ip_parallel.py
 except:
     execfile('ip_parallel.py')
@@ -179,6 +183,17 @@ def testMulti():
     assert all( [ set(ls[0])==set(i) for i in ls] ) # because seeds the same
 
 
+
+def testMrMap():
+    clear_all_engines():
+    no_rips = 2
+    v = MRipl(no_rips)
+    def f(ripl):
+        import numpy
+        ys = numpy.log([1 2 3 4])
+        return [ripl.predict(str(y)) for y in ys]
+    out_dict = mr_map_nomagic(v,f)
+    
 
 ### Tests to add
 # include NB test as well as these, try to test graphing somehow and isolate weird behavior

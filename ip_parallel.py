@@ -209,7 +209,7 @@ class MRipl():
         self.dview.execute(make_mripl_string)
         self.mrid = self.dview.pull('no_mripls')[0] - 1  # all engines should return same number
         name = 'mripl' if not(name) else name
-        self.name_rid = '%s_%i' % (name,self.mrid)
+        self.name_mrid = '%s_%i' % (name,self.mrid)
 
 
         def mk_ripl(seed,mrid):
@@ -514,14 +514,14 @@ import matplotlib.pylab as plt
 %matplotlib inline'''
 
 def mr_map(line, cell):
-    'syntax: %%mr_map proc_name mripl_name [optional: store_variable_name, local_ripl] '
+    'syntax: %%mr_map mripl_name proc_name [optional: store_variable_name, local_ripl] '
     ip = get_ipython()
 
     assert len(str(line).split()) >= 2, 'Error. Syntax: %%mr_map proc_name mripl_name [optional: store_variable_name] ' 
 
     # get inputs
-    proc_name = str(line).split()[0]
-    mripl_name =  str(line).split()[1]
+    proc_name = str(line).split()[1]
+    mripl_name =  str(line).split()[0]
     mripl = eval(mripl_name,globals(),ip.user_ns) ## FIXME: what should globals,locals be?
     mrid = mripl.mrid
 
@@ -556,34 +556,18 @@ def mr_map(line, cell):
 
 ## all version where user hands a function (which has to only include variables that 
 # are in the %px namespace
-def mr_map_nomagic(line, cell, mripl,user_proc=None):
-    'syntax: %%mr_map proc_name mripl_name [optional: store_variable_name, local_ripl] '
-    
-    assert len(str(line).split()) >= 2, 'Error. Syntax: %%mr_map proc_name mripl_name [optional: store_variable_name] ' 
-
-    # get inputs
-    proc_name = str(line).split()[0]
-    mripl_name =  str(line).split()[1]
-    mrid = mripl.mrid
-
-    ## FIXME: local_ripl will diverge from remotes if we don't have a third argument
-    if len(str(line).split()) > 3:
-        ip.run_cell(cell)  # run cell locally, for local ripl (FIXME is the namespace stuff s.t. this works?)
-        eval( '%s( %s.local_ripl )' % (proc_name,mripl_name), globals(), ip.user_ns) # eval on local ripl 
-    
-    mripl.dview.execute(cell)
-    ip.run_cell_magic("px", '', cell)  #FIXME, dview.execute is more general?
-    
-    ## FIXME: order of these commands (run_cell_mag, execute(plotting)) seems to matter. why?
+def mr_map_nomagic(mripl,proc):
+    'Push proc into engine namespaces. Then use execute to run on all ripls.'
+    proc_name = 'user_proc_' + str( abs(hash(proc)) )
+    mripl.dview.push( { proc_name: proc} )
     mripl.dview.execute(set_plotting_string) # matplotlib, inlining
-    mripl.dview.execute(add_results_list_string)    
 
-    map_proc_string = mk_map_proc_string(mripl_name,mrid,proc_name)
-    mripl.dview.execute(map_proc_string)  # execute the proc across all ripls
+    mripl.dview.execute('print %s' % proc_name)
+    mripl.dview.execute( 'results_%s =  [ %s(ripl) for ripl in mripls[%i] ] ' % (proc_name, proc_name, mripl.mrid) )
 
-    outputs_by_ripl = lst_flatten( mripl.dview.apply( lambda: results[-1]) ) # pull the result of map_proc
+    outputs_by_ripl = lst_flatten( mripl.dview['results_%s' % proc_name] )
 
-    out_dict = {'info':{'mripl':mripl_name,'proc':proc_name}, 'out':outputs_by_ripl }
+    out_dict = {'info':{'mripl':mripl.name_mrid,'proc':proc_name}, 'out':outputs_by_ripl }
     
     return out_dict
 
@@ -636,9 +620,20 @@ def crp(no_ripls=2):
     y=np.array(xs)[range(1,len(xs),2)]
     return prog,v,xs,x,y
 
-    
+clear_all_engines()
+no_rips = 5
+v=MRipl(no_rips)
 
-    
+# test what happens when ripl directives results in exception or segfault
+def m(x):
+    import os; pid=os.getpid()
+    if pid%4==0:
+        [r.predict('(categorical 2 2)') for r in mripls[0] ]
+        return [r.predict('x') for r in mripls[0]]
+    else:
+        return [r.predict('5') for r in mripls[0]]
+
+ans=v.dview.map_async(m,range(no_rips))
 
 
 
