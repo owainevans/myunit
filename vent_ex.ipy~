@@ -1,0 +1,8 @@
+%%v 
+[clear]
+[assume zeros (lambda (n) (if (= n 0) (list) (pair 0 (zeros (minus n 1)))))]
+[assume is_nil (lambda (lst) (not (is_pair lst) ) ) ]
+[assume nil (list)]
+[predict (zeros (quote 5) ) ]
+[predict (zeros (5) ) ]
+[predict (is_nil nil) ]

@@ -1,0 +1,47 @@
+ip = get_ipython()
+
+c=''' 
+[clear]
+[assume zeros (lambda (n) (if (= n 0) (list) (pair 0 (zeros (minus n 1)))))]
+[assume is_nil (lambda (lst) (not (is_pair lst) ) ) ]
+[assume nil (list)]
+[predict (zeros (quote 5) ) ]
+[predict (is_nil nil) ]
+'''
+#fails
+# [predict (zeros (5) ) ]
+# [predict (zeros (list 1) ) ]
+
+out1 = ip.run_cell_magic('v','',c)
+
+c='''
+[assume second (lambda (lst) (first (rest lst) ) ) ]
+[assume repeat (lambda (th n) (if (= n 0) (list) (pair (th) (repeat th (minus n 1) ) ) ) ) ]
+[assume and (lambda (a b) (if a (if b true false) false) ) ]
+[assume or (lambda (a b) (if a true (if b true false) ) ) ]
+[assume and_01 (and 0 1)]
+[assume or_tf (or true false) ]
+
+[assume fs (repeat flip 2) ]
+[assume lhs (or (not (first fs)) (not (second fs))  ) ]
+[assume rhs (not (and (first fs) (second fs) ) ) ]
+[assume lhs_rhs (= lhs rhs) ]
+'''
+out2 = ip.run_cell_magic('v','',c)
+
+
+c='''
+[assume len (lambda (lst) (if (is_nil lst) 0 (plus 1 (len (rest lst))) ) ) ]
+[assume len_nil (len nil) ]
+[assume p (poisson 10)]
+[assume len_zeros (= p (len (zeros p) ) ) ]
+[assume s_lookup (lambda (lst n) (if (gte n (len lst)) (quote index) (lookup lst n)) ) ]
+[assume look_check (s_lookup (zeros 4) 4) ] 
+'''
+
+out3 = ip.run_cell_magic('v','',c)
+
+
+ 
+
+
