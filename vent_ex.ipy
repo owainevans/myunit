@@ -1,11 +1,21 @@
 ip = get_ipython()
+v=ipy_ripl
+
+def line(s):
+    ls = s.split('\n')
+    for l in ls:
+        if l:
+            print l
+            ip.run_line_magic('v',l)
 
 c=''' 
 [clear]
 [assume zeros (lambda (n) (if (= n 0) (list) (pair 0 (zeros (minus n 1)))))]
+                                  
 [assume is_nil (lambda (lst) (not (is_pair lst) ) ) ]
 [assume nil (list)]
 [predict (zeros (quote 5) ) ]
+
 [predict (is_nil nil) ]
 '''
 #fails
@@ -36,10 +46,138 @@ c='''
 [assume p (poisson 10)]
 [assume len_zeros (= p (len (zeros p) ) ) ]
 [assume s_lookup (lambda (lst n) (if (gte n (len lst)) (quote index) (lookup lst n)) ) ]
+[assume ss_lookup (lambda (lst n) (if (not (is_pair lst) ) 
+                                      (quote empty_not_list)
+                                      (if (or (is_pair n) (is_symbol n) )
+                                          (quote not_int)
+                                          (s_lookup lst n) ) ) ) ]
 [assume look_check (s_lookup (zeros 4) 4) ] 
+[assume slook_check1 (ss_lookup 4 4)]
+[assume slook_check2 (ss_lookup (list 4) (list 2))]
+'''
+out3 = ip.run_cell_magic('v','',c)
+c='''
+[assume append (lambda (lst x) (if (is_nil lst) (list x)
+                               (pair (first lst) (append (rest lst) x) ) ) )]
+[assume reverse (lambda (lst) (if (is_nil lst) nil
+                               (append (reverse (rest lst) ) (first lst) ) ) ) ]
+[predict (append (list) 1 ) ]
+[predict (append (list 1) 6 ) ]
+[predict (reverse (list 1 2 3) )]'''
+out4 = ip.run_cell_magic('v','',c)
+d='''
+[assume range (lambda (n) (srange 0 n 1) ) ]
+[assume srange (lambda (b e s) (if (gte b e) (list)
+                                (pair b (srange (+ b s) e s) ) ) ) ]
+[assume neq (lambda (a b) (not (= a b) ) ) ]
+[assume ls_eq (lambda (x y) (if (neq (len x) (len y) ) false
+                           (if (and (is_nil x) (is_nil y)) true
+                            (and (= (first x) (first y) )
+                                 (ls_eq (rest x) (rest y) ) ) ) ) ) ]
+[predict (ls_eq (list 1) (reverse (list 1)) ) ]
+[predict (ls_eq (range 2) (reverse (list 1 0)) )]
+[predict (ls_eq (append (range 2) 2) (range 3) )]
+'''
+out5 = ip.run_cell_magic('v','',d)
+e='''
+[predict (ls_eq (srange 10 20 5) (list 10 15) ) ]
+[predict (ls_eq nil nil) ]
+[predict (ls_eq (list 1) (list 1)) ]
+[predict (not (ls_eq nil (list nil)))]
+[predict (not (ls_eq (list 1) (list 1 2 3) )) ]
+
+[predict (ls_eq (range 2) (list 0 1) ) ]
+[predict (not (ls_eq (range 5) (range 4) ) )]
+[predict (srange 1 20 5) ]
+[predict (ls_eq (srange 0 5 1) (range 5) ) ]
+'''
+f='''
+[assume ar_eq (lambda (a b n) (if (< n 0) true
+                              (and (= (lookup a n) (lookup b n) )
+                                   (ar_eq a b (- n 1)) ) ) ) ]
+[predict (ar_eq (array 1) (array 1) 0 ) ]
+[predict (not (ar_eq (array 1 2) (array 3 2) 1 )) ]
+[predict (not (ar_eq (array 1) (array 2) 0 )) ]
+'''
+print 'out6 \n'; out6 = ip.run_cell_magic('v','',f)
+
+ef='''
+[assume ar_ze (lambda (n)(if (= n 0) (array)
+                            (if (= n 1) (array 0)
+                            (if (= n 2) (array 0 0)
+                            (if (= n 3) (array 0 0 0)
+                            (if (= n 4) (array 0 0 0 0)
+                            (if (= n 5) (array 0 0 0 0 0)
+                            (if (= n 6) (array 0 0 0 0 0 0) (quote fail)))))))))]
+[assume ar_ra (lambda (n)(if (= n 0) (array)
+                            (if (= n 1) (array 0)
+                            (if (= n 2) (array 0 1)
+                            (if (= n 3) (array 0 1 2)
+                            (if (= n 4) (array 0 1 2 3)
+                            (if (= n 5) (array 0 1 2 3 4)
+                            (if (= n 6) (array 0 1 2 3 4 5) (quote fail)))))))))]
+
+[assume ar_ls_l (lambda (ar l u) (if (= l u) (list)
+                                 (pair (lookup ar l) (ar_ls_l ar (+ l 1) u) ) ) )]
+[assume ar_ls (lambda (ar n) (ar_ls_l ar 0 n) ) ] 
+[assume map_ar_ls (lambda (f ar n) (map_list f (ar_ls ar n) ) ) ]
+[predict (ar_ls (array) 0)]
+[predict (ar_ls (array 1) 0)]
+[predict (ar_ls (array 1) 1)]
+[predict (ls_eq  (ar_ls_l (ar_ze 5) 2 4) (list 0 0) ) ]
+[predict (not (ls_eq (ar_ls (array nil nil) 2) (list nil nil) ) )]
+[predict (lookup (map_ar_ls (lambda (x) true) (array 0 1) 2) 0)]
+'''
+out7= ip.run_cell_magic('v','',ef)
+
+def mk_ar_zeros(n):
+    start = '[assume ar_zeros_%s (lambda (n) (if (= n 0) (array)' % n
+    mid = []
+    for i in range(1,n+1):
+        ar = str(([0] * i)).replace(',','')[1:-1]
+        mid.append( '(if (= n %i) (array %s)' % (i,ar) )
+    end = ' (quote fail) %s )]' % ''.join([')']*(n+1))
+    return start + ''.join(mid) + end
+
+def mk_ar_range(n):
+    start = '[assume ar_range_%s (lambda (n) (if (= n 0) (array)' % n
+    mid = []
+    for i in range(1,n+1):
+        ar = str(range(i)).replace(',','')[1:-1]
+        mid.append( ' (if (= n %i) (array %s)' % (i,ar) )
+    end = ' (quote fail) %s )]' % ''.join([')']*(n+1))
+    return start + ''.join(mid) + end
+
+v.execute_instruction(mk_ar_zeros(4))
+v.execute_instruction(mk_ar_range(4))
+v.execute_instruction(mk_ar_zeros(50))
+v.execute_instruction(mk_ar_range(50))
+%v [predict (ar_eq (ar_zeros_4 2) (ar_ze 2) 1) ]
+%v [predict (ar_eq (ar_zeros_4 4) (ar_ze 4) 1) ]
+%v [predict (ar_eq (ar_range_4 2) (ar_ra 2) 1) ]
+%v [predict (ar_eq (ar_range_4 4) (ar_ra 4) 3) ]
+    
+ 
+f='''
+[predict (contains (dict (quote (a b c d)) (range 4)) (quote c) ) ]
+[predict (= 2 (lookup (dict (quote (a b c d)) (range 4)) (quote c)   ) )]
+[predict (= (lookup (lookup (dict (list (quote a) (quote b))
+                       (list (ar_zeros_50 10) (ar_range_50 10) ) )
+                  (quote b) )
+                  9 ) 9 ) ]
 '''
 
-out3 = ip.run_cell_magic('v','',c)
+v.execute_instruction(mk_ar_range(300))
+%v [assume ls (range 300) ]
+%v [assume ar (ar_range_300 300) ]
+%timeit %v [predict (= (lookup ls 15) 15) ]
+%timeit %v [predict (= (lookup ar 15) 15) ]
+%timeit %v [predict (= (lookup ls 250) 250) ]
+%timeit %v [predict (= (lookup ls 250) 250) ]
+
+
+## dict vs. list
+#%v [assume l 
 
 
  
