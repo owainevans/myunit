@@ -1,12 +1,19 @@
 ip = get_ipython()
 v=ipy_ripl
 
-def line(s):
+def run(prog,mag=0):
+    if mag: 
+        ip = get_ipython()
+        ip.run_cell_magic('v','',prog)
+    else:
+        v.execute_program(prog)
+
+def lines(s):
     ls = s.split('\n')
     for l in ls:
         if l:
             print l
-            ip.run_line_magic('v',l)
+            v.execute_instruction(l)
 
 c=''' 
 [clear]
@@ -22,7 +29,7 @@ c='''
 # [predict (zeros (5) ) ]
 # [predict (zeros (list 1) ) ]
 
-out1 = ip.run_cell_magic('v','',c)
+out1 = run(c)
 
 c='''
 [assume second (lambda (lst) (first (rest lst) ) ) ]
@@ -37,7 +44,7 @@ c='''
 [assume rhs (not (and (first fs) (second fs) ) ) ]
 [assume lhs_rhs (= lhs rhs) ]
 '''
-out2 = ip.run_cell_magic('v','',c)
+out2 = run(c)
 
 
 c='''
@@ -55,7 +62,7 @@ c='''
 [assume slook_check1 (ss_lookup 4 4)]
 [assume slook_check2 (ss_lookup (list 4) (list 2))]
 '''
-out3 = ip.run_cell_magic('v','',c)
+out3 = run(c)
 c='''
 [assume append (lambda (lst x) (if (is_nil lst) (list x)
                                (pair (first lst) (append (rest lst) x) ) ) )]
@@ -64,7 +71,7 @@ c='''
 [predict (append (list) 1 ) ]
 [predict (append (list 1) 6 ) ]
 [predict (reverse (list 1 2 3) )]'''
-out4 = ip.run_cell_magic('v','',c)
+out4 = run(c)
 d='''
 [assume range (lambda (n) (srange 0 n 1) ) ]
 [assume srange (lambda (b e s) (if (gte b e) (list)
@@ -78,7 +85,7 @@ d='''
 [predict (ls_eq (range 2) (reverse (list 1 0)) )]
 [predict (ls_eq (append (range 2) 2) (range 3) )]
 '''
-out5 = ip.run_cell_magic('v','',d)
+out5 = run(d)
 e='''
 [predict (ls_eq (srange 10 20 5) (list 10 15) ) ]
 [predict (ls_eq nil nil) ]
@@ -99,7 +106,7 @@ f='''
 [predict (not (ar_eq (array 1 2) (array 3 2) 1 )) ]
 [predict (not (ar_eq (array 1) (array 2) 0 )) ]
 '''
-print 'out6 \n'; out6 = ip.run_cell_magic('v','',f)
+print 'out6 \n'; out6 = run(f)
 
 ef='''
 [assume ar_ze (lambda (n)(if (= n 0) (array)
@@ -128,7 +135,7 @@ ef='''
 [predict (not (ls_eq (ar_ls (array nil nil) 2) (list nil nil) ) )]
 [predict (lookup (map_ar_ls (lambda (x) true) (array 0 1) 2) 0)]
 '''
-out7= ip.run_cell_magic('v','',ef)
+out7= run(ef)
 
 def mk_ar_zeros(n):
     start = '[assume ar_zeros_%s (lambda (n) (if (= n 0) (array)' % n
@@ -152,13 +159,16 @@ v.execute_instruction(mk_ar_zeros(4))
 v.execute_instruction(mk_ar_range(4))
 v.execute_instruction(mk_ar_zeros(50))
 v.execute_instruction(mk_ar_range(50))
-%v [predict (ar_eq (ar_zeros_4 2) (ar_ze 2) 1) ]
-%v [predict (ar_eq (ar_zeros_4 4) (ar_ze 4) 1) ]
-%v [predict (ar_eq (ar_range_4 2) (ar_ra 2) 1) ]
-%v [predict (ar_eq (ar_range_4 4) (ar_ra 4) 3) ]
-    
- 
 f='''
+[predict (ar_eq (ar_zeros_4 2) (ar_ze 2) 1) ]
+[predict (ar_eq (ar_zeros_4 4) (ar_ze 4) 1) ]
+[predict (ar_eq (ar_range_4 2) (ar_ra 2) 1) ]
+[predict (ar_eq (ar_range_4 4) (ar_ra 4) 3) ]
+'''
+out8 = run(f)    
+ 
+
+g='''
 [predict (contains (dict (quote (a b c d)) (range 4)) (quote c) ) ]
 [predict (= 2 (lookup (dict (quote (a b c d)) (range 4)) (quote c)   ) )]
 [predict (= (lookup (lookup (dict (list (quote a) (quote b))
@@ -166,14 +176,57 @@ f='''
                   (quote b) )
                   9 ) 9 ) ]
 '''
+out9 = run(g)
 
-v.execute_instruction(mk_ar_range(300))
-%v [assume ls (range 300) ]
-%v [assume ar (ar_range_300 300) ]
-%timeit %v [predict (= (lookup ls 15) 15) ]
-%timeit %v [predict (= (lookup ar 15) 15) ]
-%timeit %v [predict (= (lookup ls 250) 250) ]
-%timeit %v [predict (= (lookup ls 250) 250) ]
+
+v.execute_instruction(mk_ar_range(100))
+v.execute_instruction( '[assume ls (range 100) ]')
+v.execute_instruction( '[assume ar (ar_range_100 100) ]')
+# %timeit v.execute_instruction( '[predict (= (lookup ls 15) 15) ]')
+# %timeit v.execute_instruction( '[predict (= (lookup ar 15) 15) ]')
+# %timeit v.execute_instruction( '[predict (= (lookup ls 90) 90) ]')
+# %timeit v.execute_instruction( '[predict (= (lookup ar 90) 90) ]')
+
+
+h='''
+[assume cat (lambda (xs ys) (if (is_nil ys) xs
+                                 (cat (append xs (first ys)) (rest ys) ) ) )]
+[assume fold (lambda (f l el) (if (is_nil l) el
+                                (f (first l) (fold f (rest l) el) ) ) ) ]
+[predict (= 1 (fold + (range 2) 0) )]
+[predict (= 1 (fold (lambda (x y) (+ x y) ) (range 2) 0))]
+[predict (ls_eq  (zeros 6) 
+   (fold cat (list (zeros 2) (zeros 2) (zeros 2) ) nil) )]
+
+
+[predict (and (is_nil (cat nil nil)) 
+               (ls_eq (list 0) (cat (list 0) nil)) ) ]
+[predict (ls_eq (cat (zeros 2) (zeros 2)) (zeros 4) ) ]
+
+[predict (= (quote a) (quote a) ) ]
+[predict (ls_eq (quote (a b c)) (pair (quote a) (quote (b c))) ) ]
+'''
+out10 = run(h)
+
+d_i = '''
+[assume repeat (lambda (th n) (if (= n 0) (list) (pair (th) (repeat th (minus n 1) ) ) ) ) ] 
+[assume uni_draw (lambda (xs) (if (not (is_pair xs)) (quote error)
+                          (lookup xs (uniform_discrete 0 (len xs) ) ) )) ]
+[assume suml (xs) (fold + xs 0)]
+[predict (= 0 (suml (zeros 5)))]
+[predict (= 6 (suml (range 4)))]
+[predict (= 1 (uni_draw (list 1) ) ) ]
+[predict (> 1 (suml (repeat (lambda () (uni_draw (range 5) ) ) 20) ) ) ]
+[predict (> .2 (suml (repeat flip 20) ) )]
+[predict (is_nil (repeat (lambda () nil) 0) ) ]
+[predict (< 1 (suml (repeat (lambda () (normal 0 .3) ) 20) ) ) ]
+[predict (< 1 (suml (repeat (lambda () (normal 0 .3) ) 20) ) ) ]
+
+
+di_list = v.list_directives()
+print 'false asserts: \n'
+for di in di_list:
+    if di['instruction']=='predict' and di['value']==False: print di
 
 
 ## dict vs. list
