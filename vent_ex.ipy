@@ -18,7 +18,7 @@ def lines(s):
 c=''' 
 [clear]
 [assume zeros (lambda (n) (if (= n 0) (list) (pair 0 (zeros (minus n 1)))))]
-                                  
+[assume ones (lambda (n) (if (= n 0) (list) (pair 1 (ones (minus n 1)))))]                                  
 [assume is_nil (lambda (lst) (not (is_pair lst) ) ) ]
 [assume nil (list)]
 [predict (zeros (quote 5) ) ]
@@ -198,7 +198,6 @@ h='''
 [predict (ls_eq  (zeros 6) 
    (fold cat (list (zeros 2) (zeros 2) (zeros 2) ) nil) )]
 
-
 [predict (and (is_nil (cat nil nil)) 
                (ls_eq (list 0) (cat (list 0) nil)) ) ]
 [predict (ls_eq (cat (zeros 2) (zeros 2)) (zeros 4) ) ]
@@ -209,24 +208,51 @@ h='''
 out10 = run(h)
 
 d_i = '''
-[assume repeat (lambda (th n) (if (= n 0) (list) (pair (th) (repeat th (minus n 1) ) ) ) ) ] 
+[assume repeat (lambda (th n) (if (= n 0) (list) (pair (th) (repeat th (- n 1) ) ) ) ) ] 
 [assume uni_draw (lambda (xs) (if (not (is_pair xs)) (quote error)
                           (lookup xs (uniform_discrete 0 (len xs) ) ) )) ]
-[assume suml (xs) (fold + xs 0)]
+[assume suml (lambda (xs) (fold + xs 0) )]
+[assume prodl (lambda (xs) (fold * xs 1) ) ]
+[assume mean (lambda (xs) (if (not (is_pair xs)) (quote error) 
+                       (/ (suml xs) (len xs)) )) ]
+[assume andl (lambda (xs) (fold and xs true)) ]
+[assume nflip (lambda () (if (flip) 1 0)) ]
+[assume nflip_p (lambda (p) (if (flip p) 1 0) ) ]
+
+[predict (not (andl (zeros 2) ) ) ]
+[predict (andl (list 1 1)) ]
+[predict (not (andl (list 1 0 1))) ]
+[predict (= 0 (prodl (zeros 5)))]
+[predict (= 1 (prodl (ones (+ 1 (poisson 10)) )))]
+[predict (= 120 (prodl (srange 1 6 1) ) ) ]
 [predict (= 0 (suml (zeros 5)))]
 [predict (= 6 (suml (range 4)))]
 [predict (= 1 (uni_draw (list 1) ) ) ]
-[predict (> 1 (suml (repeat (lambda () (uni_draw (range 5) ) ) 20) ) ) ]
-[predict (> .2 (suml (repeat flip 20) ) )]
+[predict (< .1 (mean (repeat nflip 20) ) )]
 [predict (is_nil (repeat (lambda () nil) 0) ) ]
-[predict (< 1 (suml (repeat (lambda () (normal 0 .3) ) 20) ) ) ]
-[predict (< 1 (suml (repeat (lambda () (normal 0 .3) ) 20) ) ) ]
+[predict (> 1.5 (suml (repeat (lambda () (normal 0 .1) ) 20) ) ) ]
+[predict ( (lambda (coin) (and coin coin) ) (flip) ) ]
+'''
+out11 = run(d_i)
+#[predict ( (repeat (mem (lambda () (flip) )) 2) ) ]
+
+dp='''
+[assume alpha .99]
+[assume mem_norm (mem (lambda (i) (normal 0 1) ) )]
+[assume my_crp (make_crp alpha) ]
+[assume dp_norm (lambda () (mem_norm my_crp) ) ]
+[predict (repeat (lambda () (mean (repeat dp_norm 50)) ) 10) ]
+'''
 
 
-di_list = v.list_directives()
-print 'false asserts: \n'
-for di in di_list:
-    if di['instruction']=='predict' and di['value']==False: print di
+
+
+
+def testPredicts():
+    di_list = v.list_directives()
+    print 'false asserts: \n'
+    for di in di_list:
+        if di['instruction']=='predict' and di['value']==False: print di
 
 
 ## dict vs. list
