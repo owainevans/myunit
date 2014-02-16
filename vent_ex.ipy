@@ -1,5 +1,21 @@
 ip = get_ipython()
 v=ipy_ripl
+d={}
+
+
+def as_sort(d):
+    as_items = [item for item in d.items() if item[0].startswith('as')]
+    return sorted(as_items,key=lambda pair: int(pair[0][2]),)
+
+def pr_sort(d):
+    pr_items = [item for item in d.items() if item[0].startswith('pr')]
+    return sorted(pr_items,key=lambda pair: int(pair[0][2]),)
+
+def run_as():
+    [run(item[1]) for item in as_sort(d) ]
+
+def run_pr():
+    [run(item[1]) for item in pr_sort(d)]
 
 def run(prog,mag=0):
     if mag: 
@@ -15,64 +31,68 @@ def lines(s):
             print l
             v.execute_instruction(l)
 
-c=''' 
-[clear]
-[assume zeros (lambda (n) (if (= n 0) (list) (pair 0 (zeros (minus n 1)))))]
-[assume ones (lambda (n) (if (= n 0) (list) (pair 1 (ones (minus n 1)))))]                                  
-[assume is_nil (lambda (lst) (not (is_pair lst) ) ) ]
-[assume nil (list)]
-[predict (zeros (quote 5) ) ]
+def testPredicts():
+    di_list = v.list_directives()
+    print 'false asserts: \n'
+    for di in di_list:
+        if di['instruction']=='predict' and di['value']==False: print di
 
+
+d['as1']=''' 
+[assume zeros (lambda (n) (if (= n 0) (list) (pair 0 (zeros (minus n 1)))))]
+[assume ones (lambda (n) (if (= n 0) (list) (pair 1 (ones (minus n 1)))))]         [assume is_nil (lambda (lst) (not (is_pair lst) ) ) ]
+[assume nil (list)]
+'''
+d['pr1']='''
+[predict (zeros (quote 5) ) ]
 [predict (is_nil nil) ]
 '''
 #fails
 # [predict (zeros (5) ) ]
 # [predict (zeros (list 1) ) ]
 
-out1 = run(c)
-
-c='''
+d['as2']='''
 [assume second (lambda (lst) (first (rest lst) ) ) ]
 [assume repeat (lambda (th n) (if (= n 0) (list) (pair (th) (repeat th (- n 1) ) ) ) ) ]
 [assume and (lambda (a b) (if a (if b true false) false) ) ]
 [assume or (lambda (a b) (if a true (if b true false) ) ) ]
-[assume and_01 (and 0 1)]
-[assume or_tf (or true false) ]
-
-[assume fs (repeat flip 2) ]
-[assume lhs (or (not (first fs)) (not (second fs))  ) ]
-[assume rhs (not (and (first fs) (second fs) ) ) ]
-[assume lhs_rhs (= lhs rhs) ]
 '''
-out2 = run(c)
+d['pr2']='''
+[predict (not (and 0 1))]
+[predict (or true false) ]
+[predict (not ( (lambda (x) (and x (not x) ) ) (flip) ) ) ]
+[predict ( (lambda (x) (or x (not x)) )  (flip) )  ]
+'''
 
-
-c='''
+d['as3']='''
 [assume len (lambda (lst) (if (is_nil lst) 0 (plus 1 (len (rest lst))) ) ) ]
-[assume len_nil (len nil) ]
-[assume p (poisson 10)]
-[assume len_zeros (= p (len (zeros p) ) ) ]
 [assume s_lookup (lambda (lst n) (if (gte n (len lst)) (quote index) (lookup lst n)) ) ]
 [assume ss_lookup (lambda (lst n) (if (not (is_pair lst) ) 
                                       (quote empty_not_list)
                                       (if (or (is_pair n) (is_symbol n) )
                                           (quote not_int)
                                           (s_lookup lst n) ) ) ) ]
-[assume look_check (s_lookup (zeros 4) 4) ] 
-[assume slook_check1 (ss_lookup 4 4)]
-[assume slook_check2 (ss_lookup (list 4) (list 2))]
 '''
-out3 = run(c)
-c='''
+d['pr3']='''
+[predict (= (quote index) (s_lookup (zeros 4) 4) ) ] 
+[predict (ss_lookup 4 4) ]
+[predict (ss_lookup (list 4) (list 2)) ] 
+[predict (= 10 (len (zeros 10)))]
+[predict (= 0 (len nil))]
+'''
+
+d['as4']='''
 [assume append (lambda (lst x) (if (is_nil lst) (list x)
                                (pair (first lst) (append (rest lst) x) ) ) )]
 [assume reverse (lambda (lst) (if (is_nil lst) nil
                                (append (reverse (rest lst) ) (first lst) ) ) ) ]
+'''
+d['pr4']='''
 [predict (append (list) 1 ) ]
 [predict (append (list 1) 6 ) ]
 [predict (reverse (list 1 2 3) )]'''
-out4 = run(c)
-d='''
+
+d['as5']='''
 [assume range (lambda (n) (srange 0 n 1) ) ]
 [assume srange (lambda (b e s) (if (gte b e) (list)
                                 (pair b (srange (+ b s) e s) ) ) ) ]
@@ -81,34 +101,24 @@ d='''
                            (if (and (is_nil x) (is_nil y)) true
                             (and (= (first x) (first y) )
                                  (ls_eq (rest x) (rest y) ) ) ) ) ) ]
-[predict (ls_eq (list 1) (reverse (list 1)) ) ]
+'''
+d['pr5']='''[predict (ls_eq (list 1) (reverse (list 1)) ) ]
 [predict (ls_eq (range 2) (reverse (list 1 0)) )]
 [predict (ls_eq (append (range 2) 2) (range 3) )]
-'''
-out5 = run(d)
-e='''
 [predict (ls_eq (srange 10 20 5) (list 10 15) ) ]
 [predict (ls_eq nil nil) ]
 [predict (ls_eq (list 1) (list 1)) ]
 [predict (not (ls_eq nil (list nil)))]
 [predict (not (ls_eq (list 1) (list 1 2 3) )) ]
-
 [predict (ls_eq (range 2) (list 0 1) ) ]
 [predict (not (ls_eq (range 5) (range 4) ) )]
 [predict (srange 1 20 5) ]
 [predict (ls_eq (srange 0 5 1) (range 5) ) ]
 '''
-f='''
+d['as6']='''
 [assume ar_eq (lambda (a b n) (if (< n 0) true
                               (and (= (lookup a n) (lookup b n) )
                                    (ar_eq a b (- n 1)) ) ) ) ]
-[predict (ar_eq (array 1) (array 1) 0 ) ]
-[predict (not (ar_eq (array 1 2) (array 3 2) 1 )) ]
-[predict (not (ar_eq (array 1) (array 2) 0 )) ]
-'''
-print 'out6 \n'; out6 = run(f)
-
-ef='''
 [assume ar_ze (lambda (n)(if (= n 0) (array)
                             (if (= n 1) (array 0)
                             (if (= n 2) (array 0 0)
@@ -123,11 +133,15 @@ ef='''
                             (if (= n 4) (array 0 1 2 3)
                             (if (= n 5) (array 0 1 2 3 4)
                             (if (= n 6) (array 0 1 2 3 4 5) (quote fail)))))))))]
-
 [assume ar_ls_l (lambda (ar l u) (if (= l u) (list)
                                  (pair (lookup ar l) (ar_ls_l ar (+ l 1) u) ) ) )]
 [assume ar_ls (lambda (ar n) (ar_ls_l ar 0 n) ) ] 
 [assume map_ar_ls (lambda (f ar n) (map_list f (ar_ls ar n) ) ) ]
+'''
+d['pr6']='''
+[predict (ar_eq (array 1) (array 1) 0 ) ]
+[predict (not (ar_eq (array 1 2) (array 3 2) 1 )) ]
+[predict (not (ar_eq (array 1) (array 2) 0 )) ]
 [predict (ar_ls (array) 0)]
 [predict (ar_ls (array 1) 0)]
 [predict (ar_ls (array 1) 1)]
@@ -135,8 +149,6 @@ ef='''
 [predict (not (ls_eq (ar_ls (array nil nil) 2) (list nil nil) ) )]
 [predict (lookup (map_ar_ls (lambda (x) true) (array 0 1) 2) 0)]
 '''
-out7= run(ef)
-
 def mk_ar_zeros(n):
     start = '[assume ar_zeros_%s (lambda (n) (if (= n 0) (array)' % n
     mid = []
@@ -155,59 +167,40 @@ def mk_ar_range(n):
     end = ' (quote fail) %s )]' % ''.join([')']*(n+1))
     return start + ''.join(mid) + end
 
-v.execute_instruction(mk_ar_zeros(4))
-v.execute_instruction(mk_ar_range(4))
-v.execute_instruction(mk_ar_zeros(50))
-v.execute_instruction(mk_ar_range(50))
-f='''
+d['as7'] = mk_ar_zeros(4) + mk_ar_range(4) + mk_ar_zeros(20) + mk_ar_range(20)
+d['pr7']='''
 [predict (ar_eq (ar_zeros_4 2) (ar_ze 2) 1) ]
 [predict (ar_eq (ar_zeros_4 4) (ar_ze 4) 1) ]
 [predict (ar_eq (ar_range_4 2) (ar_ra 2) 1) ]
 [predict (ar_eq (ar_range_4 4) (ar_ra 4) 3) ]
-'''
-out8 = run(f)    
- 
 
-g='''
 [predict (contains (dict (quote (a b c d)) (range 4)) (quote c) ) ]
 [predict (= 2 (lookup (dict (quote (a b c d)) (range 4)) (quote c)   ) )]
 [predict (= (lookup (lookup (dict (list (quote a) (quote b))
-                       (list (ar_zeros_50 10) (ar_range_50 10) ) )
+                       (list (ar_zeros_20 10) (ar_range_20 10) ) )
                   (quote b) )
                   9 ) 9 ) ]
 '''
-out9 = run(g)
 
-
-v.execute_instruction(mk_ar_range(100))
-v.execute_instruction( '[assume ls (range 100) ]')
-v.execute_instruction( '[assume ar (ar_range_100 100) ]')
-# %timeit v.execute_instruction( '[predict (= (lookup ls 15) 15) ]')
-# %timeit v.execute_instruction( '[predict (= (lookup ar 15) 15) ]')
-# %timeit v.execute_instruction( '[predict (= (lookup ls 90) 90) ]')
-# %timeit v.execute_instruction( '[predict (= (lookup ar 90) 90) ]')
-
-
-h='''
+d['as8']='''
 [assume cat (lambda (xs ys) (if (is_nil ys) xs
                                  (cat (append xs (first ys)) (rest ys) ) ) )]
 [assume fold (lambda (f l el) (if (is_nil l) el
                                 (f (first l) (fold f (rest l) el) ) ) ) ]
+'''
+d['pr8']='''
 [predict (= 1 (fold + (range 2) 0) )]
 [predict (= 1 (fold (lambda (x y) (+ x y) ) (range 2) 0))]
 [predict (ls_eq  (zeros 6) 
    (fold cat (list (zeros 2) (zeros 2) (zeros 2) ) nil) )]
-
 [predict (and (is_nil (cat nil nil)) 
                (ls_eq (list 0) (cat (list 0) nil)) ) ]
 [predict (ls_eq (cat (zeros 2) (zeros 2)) (zeros 4) ) ]
-
 [predict (= (quote a) (quote a) ) ]
 [predict (ls_eq (quote (a b c)) (pair (quote a) (quote (b c))) ) ]
 '''
-out10 = run(h)
 
-d_i = '''
+d['as9'] = '''
 [assume uni_draw (lambda (xs) (if (not (is_pair xs)) (quote error)
                           (lookup xs (uniform_discrete 0 (len xs) ) ) )) ]
 [assume suml (lambda (xs) (fold + xs 0) )]
@@ -221,10 +214,11 @@ d_i = '''
                                    (if (= (lookup xs s) x) s
                                     (index_s xs x (+ s 1) ) ) ) )  ]
 [assume index (lambda (xs x) (index_s xs x 0) ) ]
+'''
+d['pr9']='''
 [predict (= 0 (index (list 1) 1) )]
 [predict (= -1 (index (list 1) 2) )]
 [predict (= 6 (index (range 6) 5) )]
-
 [predict (not (andl (zeros 2) ) ) ]
 [predict (andl (list 1 1)) ]
 [predict (not (andl (list 1 0 1))) ]
@@ -239,7 +233,10 @@ d_i = '''
 [predict (> 1.5 (suml (repeat (lambda () (normal 0 .1) ) 20) ) ) ]
 [predict ( (lambda (coin) (and coin coin) ) (flip) ) ]
 '''
-out11 = run(d_i)
+
+###############
+
+run_as()
 
 dp='''
 [assume alpha .99]
@@ -252,29 +249,52 @@ dp='''
                   ) 
                  (mem (lambda (i) (th) ) )  (make_crp a) ) ) ]
 [assume dp_norm2 (dpmem (lambda()(normal 0 1)) .99)]
-[predict (< 1 (- (mean (repeat dp_norm 50)) (mean (repeat dp_norm2 50)) ) ) ]
 [assume dp_norm3 (dpmem (lambda()(normal 0 1)) .001)]
+'''
+pr_dp='''
+[predict (> 1 (- (mean (repeat dp_norm 50)) (mean (repeat dp_norm2 50)) ) ) ]
+
 [predict (or (= (dp_norm3) (uni_draw (repeat dp_norm3 20) ))
              (= (dp_norm3) (uni_draw (repeat dp_norm3 20) )) )]
 [predict (list (dp_norm) (dp_norm) (dp_norm) (dp_norm) (dp_norm)) ]
-[predict (< 1 (mean (repeat dp_norm 50)) ) ]
-[predict (< 1 (mean (repeat dp_norm 50)) ) ]
-
+[predict (> 1 (mean (repeat dp_norm 50)) ) ]
+[predict (> 1 (mean (repeat dp_norm 50)) ) ]
 '''
-
 out12 = run(dp)
 
+gsym='''
+[assume gsym (lambda () (uniform_discrete 0 (power 10 6) ) ) ]
+[assume g (repeat gsym 100) ]
+[predict (= -1 (index_s g (first g) 1) ) ]
+[predict (= -1 (index_s g (second g) 2) ) ]
+'''
+out13=run(gsym)
+
+irm='''
+[assume classdist (dpmem 1.0 gsym)]
+[assume obj_class (mem (lambda (obj) (classdist) ) ) ]
+[assume classes_params (mem (lambda (c1 c2) (beta .5 .5) ) ) ]
+[assume talks (mem (lambda (o1 o2) 
+                         (flip (classes_params (obj_class o1) (obj_class o2)))))]
+'''
+#out14=run(irm)
+# n=50
+# graph = [ [] ] * n
+# for i in range(n):
+#     for j in range(n):
+#         graph[i].append( v.predict( '(talks p%s p%s)' % (str(i),str(j)) ) )
 
 
-def testPredicts():
-    di_list = v.list_directives()
-    print 'false asserts: \n'
-    for di in di_list:
-        if di['instruction']=='predict' and di['value']==False: print di
 
 
-## dict vs. list
-#%v [assume l 
+
+
+
+
+
+
+
+
 
 
  
