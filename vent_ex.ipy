@@ -33,7 +33,7 @@ out1 = run(c)
 
 c='''
 [assume second (lambda (lst) (first (rest lst) ) ) ]
-[assume repeat (lambda (th n) (if (= n 0) (list) (pair (th) (repeat th (minus n 1) ) ) ) ) ]
+[assume repeat (lambda (th n) (if (= n 0) (list) (pair (th) (repeat th (- n 1) ) ) ) ) ]
 [assume and (lambda (a b) (if a (if b true false) false) ) ]
 [assume or (lambda (a b) (if a true (if b true false) ) ) ]
 [assume and_01 (and 0 1)]
@@ -208,7 +208,6 @@ h='''
 out10 = run(h)
 
 d_i = '''
-[assume repeat (lambda (th n) (if (= n 0) (list) (pair (th) (repeat th (- n 1) ) ) ) ) ] 
 [assume uni_draw (lambda (xs) (if (not (is_pair xs)) (quote error)
                           (lookup xs (uniform_discrete 0 (len xs) ) ) )) ]
 [assume suml (lambda (xs) (fold + xs 0) )]
@@ -218,6 +217,13 @@ d_i = '''
 [assume andl (lambda (xs) (fold and xs true)) ]
 [assume nflip (lambda () (if (flip) 1 0)) ]
 [assume nflip_p (lambda (p) (if (flip p) 1 0) ) ]
+[assume index_s (lambda (xs x s) (if (gte s (len xs) ) -1 
+                                   (if (= (lookup xs s) x) s
+                                    (index_s xs x (+ s 1) ) ) ) )  ]
+[assume index (lambda (xs x) (index_s xs x 0) ) ]
+[predict (= 0 (index (list 1) 1) )]
+[predict (= -1 (index (list 1) 2) )]
+[predict (= 6 (index (range 6) 5) )]
 
 [predict (not (andl (zeros 2) ) ) ]
 [predict (andl (list 1 1)) ]
@@ -234,17 +240,29 @@ d_i = '''
 [predict ( (lambda (coin) (and coin coin) ) (flip) ) ]
 '''
 out11 = run(d_i)
-#[predict ( (repeat (mem (lambda () (flip) )) 2) ) ]
 
 dp='''
 [assume alpha .99]
 [assume mem_norm (mem (lambda (i) (normal 0 1) ) )]
 [assume my_crp (make_crp alpha) ]
-[assume dp_norm (lambda () (mem_norm my_crp) ) ]
-[predict (repeat (lambda () (mean (repeat dp_norm 50)) ) 10) ]
+[assume dp_norm (lambda () (mem_norm (my_crp)) ) ]
+[assume dpmem (lambda (th a)
+               ( (lambda (mem_th my_crp)
+                   (lambda () (mem_th (my_crp)) )
+                  ) 
+                 (mem (lambda (i) (th) ) )  (make_crp a) ) ) ]
+[assume dp_norm2 (dpmem (lambda()(normal 0 1)) .99)]
+[predict (< 1 (- (mean (repeat dp_norm 50)) (mean (repeat dp_norm2 50)) ) ) ]
+[assume dp_norm3 (dpmem (lambda()(normal 0 1)) .001)]
+[predict (or (= (dp_norm3) (uni_draw (repeat dp_norm3 20) ))
+             (= (dp_norm3) (uni_draw (repeat dp_norm3 20) )) )]
+[predict (list (dp_norm) (dp_norm) (dp_norm) (dp_norm) (dp_norm)) ]
+[predict (< 1 (mean (repeat dp_norm 50)) ) ]
+[predict (< 1 (mean (repeat dp_norm 50)) ) ]
+
 '''
 
-
+out12 = run(dp)
 
 
 
