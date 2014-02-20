@@ -271,23 +271,41 @@ gsym='''
 out13=run(gsym)
 
 irm='''
-[assume classdist (dpmem 1.0 gsym)]
+[assume classdist (dpmem gsym .9]
 [assume obj_class (mem (lambda (obj) (classdist) ) ) ]
 [assume classes_params (mem (lambda (c1 c2) (beta .5 .5) ) ) ]
 [assume talks (mem (lambda (o1 o2) 
                          (flip (classes_params (obj_class o1) (obj_class o2)))))]
 '''
-#out14=run(irm)
+# out14=run(irm)
 # n=50
 # graph = [ [] ] * n
 # for i in range(n):
 #     for j in range(n):
-#         graph[i].append( v.predict( '(talks p%s p%s)' % (str(i),str(j)) ) )
+#          graph[i].append( v.predict( '(talks p%s p%s)' % (str(i),str(j)) ) 
+# )
 
 
+# from venture.shortcuts import make_lite_church_prime_ripl as mk_lite
+# v=mk_lite()
 
 
-
+# v.assume("f","""
+# (make_lazy_hmm
+#  (simplex 0.9 0.1)
+#  (matrix (list (list 0.7 0.3)
+#                (list 0.3 0.7)))
+#  (matrix (list (list 0.9 0.1)
+#                (list 0.6 0.4))))
+# """)
+# v.observe("(f 1)",'0')
+# v.observe("(f 2)",'0')
+# v.observe("(f 1)","atom<0>")
+# v.observe("(f 2)","atom<0>")
+# v.observe("(f 3)","atom<1>")
+# v.observe("(f 4)","atom<0>")
+# v.observe("(f 5)","atom<0>")
+# v.predict("(f 6)",label="pid")
 
 
 
