@@ -1,3 +1,5 @@
+import numpy as np
+import matplotlib.pylab as plt
 ip = get_ipython()
 v=ipy_ripl
 d={}
@@ -271,19 +273,74 @@ gsym='''
 out13=run(gsym)
 
 irm='''
-[assume classdist (dpmem gsym .9]
+[assume classdist (dpmem gsym .95)]
 [assume obj_class (mem (lambda (obj) (classdist) ) ) ]
-[assume classes_params (mem (lambda (c1 c2) (beta .5 .5) ) ) ]
+[assume classes_params (mem (lambda (c1 c2) (beta .1 .1) ) ) ]
 [assume talks (mem (lambda (o1 o2) 
                          (flip (classes_params (obj_class o1) (obj_class o2)))))]
 '''
-# out14=run(irm)
-# n=50
-# graph = [ [] ] * n
-# for i in range(n):
-#     for j in range(n):
-#          graph[i].append( v.predict( '(talks p%s p%s)' % (str(i),str(j)) ) 
-# )
+irm_sym='''
+[assume classdist (dpmem gsym .95)]
+[assume obj_class (mem (lambda (obj) (classdist) ) ) ]
+[assume classes_params (mem (lambda (c1 c2) (beta .1 .1) ) ) ]
+[assume talks (mem (lambda (o1 o2)
+  (if (< o1 o2) (flip (classes_params (obj_class o1) (obj_class o2)))
+                (flip (classes_params (obj_class o2) (obj_class o1))))))]
+
+'''
+cross_cat='''
+[assume kinddist (dpmem gsym .95) ]
+[assume 
+
+
+# [assume x (mem (lambda i f) 
+#              (let ( [kindf (kind_f f)]
+#                     [z_i_kindf (z_kind_f kindf)]
+#                     [th_i_f (th f z_i) ] )
+#                     (flip th_i_f) ) ) ]
+
+[assume crp_draw (make_crp .99) ]
+[assume kind (mem (lambda (f) (crp_draw) ) ) ]
+[assume kind_class (mem (lambda (kind) (make_crp .99) ) ) ]
+[assume i_kind_class (mem (lambda (i kind) (kind_class kind) ) ) ]
+[assume f_kindclass_th (mem (lambda (f kind_class) (beta .3 .3) ) ) ]
+[assume x (mem (lambda i f)
+                (let ([kindf (kind f) ]
+                      [ikindclass (i_kind_class i kindf)]
+                      [fkindth (f_kind_th (f 
+
+[assume x (mem (lambda i f)
+            (flip (th f (z_kind_f (kind_f f) ) ) ) ]
+                    
+
+             (let ( [kindf (kind_f f)]
+                    [z_i (z_kind_f kindf i)]
+                    [theta (theta f z_i) ] )
+                    (flip theta) ) ) ]
+
+
+
+
+
+'''
+out14=run(irm_sym)
+n=20
+graph = [ [] ] * n
+for i in range(n):
+    graph[i]= [v.predict('(talks %s %s)' % (str(i),str(j)) ) for j in range(n) ]
+
+g = np.array(graph)
+g = g.astype(int)
+def find_class(i): return v.sample( '(obj_class %s)' % str(i) )
+h=g.tolist()
+keys = [find_class(i) for i in range(len(h)) ]
+h_key = zip(h,keys)
+h_sor = sorted(h_key,key=lambda row_key: row_key[1])
+h_sor_nokey = np.array( [row_key[0] for row_key in h_sor] )
+assert np.sum(np.array(h_sor_nokey)) == np.sum(g)
+fig,ax = plt.subplots(2,1)
+ax[0].imshow(g); ax[1].imshow(h_sor_nokey)
+
 
 
 # from venture.shortcuts import make_lite_church_prime_ripl as mk_lite
