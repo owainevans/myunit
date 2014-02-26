@@ -288,6 +288,25 @@ irm_sym='''
                 (flip (classes_params (obj_class o2) (obj_class o1))))))]
 
 '''
+
+# idea: instead of pais of groups having a coin weight and indivs
+# either talk or dont we might want to model ongoing interaction
+# between pairs, which could be heterogeneous over time. one 
+# idea is that pairs of groups give different starting points
+# for urn processes, or alternatively different prior on the pairs
+# coin weight. so for each pair of groups, we'd have a hyper prior
+# over a beta. e.g. 
+
+
+irm_sym_beta='''
+[assume classdist (dpmem gsym .95)]
+[assume obj_class (mem (lambda (obj) (classdist) ) ) ]
+[assume classes_params (mem (lambda (c1 c2) (beta .1 .1) ) ) ]
+[assume talks (mem (lambda (o1 o2)
+  (if (< o1 o2) (flip (classes_params (obj_class o1) (obj_class o2)))
+                (flip (classes_params (obj_class o2) (obj_class o1))))))]
+
+'''
 cross_cat='''
 [assume kinddist (dpmem gsym .95) ]
 [assume 
