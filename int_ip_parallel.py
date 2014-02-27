@@ -6,7 +6,7 @@ import numpy as np
 import matplotlib.pylab as plt
 from scipy.stats import kde
 gaussian_kde = kde.gaussian_kde
-import subprocess,time
+import subprocess,time, pickle
 
 
 
@@ -123,9 +123,12 @@ def make_mripl_func():
 
 class MRipl():
     
-    def __init__(self,no_ripls,lite=False,client=None,name=None):
-        if not lite: self.local_ripl = make_church_prime_ripl()
-        else: self.local_ripl = make_lite_church_prime_ripl()
+    def __init__(self,no_ripls,lite=False,verbose=True,client=None,name=None):
+        self.lite = lite
+        if not self.lite:
+            self.local_ripl = make_church_prime_ripl()
+        else:
+            self.local_ripl = make_lite_church_prime_ripl()
         self.local_ripl.set_seed(0)   # same seed as first remote ripl
         self.no_ripls = no_ripls
         self.seeds = range(self.no_ripls)
@@ -137,13 +140,15 @@ class MRipl():
         def p_getpids(): import os; return os.getpid()
         self.pids = self.dview.apply(p_getpids)
       
-        self.dview.execute('from venture.shortcuts import make_church_prime_ripl as make_ripl')
-        if lite: 
+        if not self.lite:
+            self.dview.execute('from venture.shortcuts import make_church_prime_ripl as make_ripl')
+        else:
             self.dview.execute('from venture.shortcuts import make_lite_church_prime_ripl as make_ripl')
         
         # import as plt for all plotting (note: user may need to have opened
         # IPNB in inline mode for everything to work -- include in examples)
         self.dview.execute('import matplotlib.pylab as plt')
+        self.dview.execute('import pickle')
         #self.dview.execute('%pylab inline
         self.dview.push(copy_ripl_dict)
         self.dview.execute(make_mripl_string)
@@ -155,7 +160,7 @@ class MRipl():
 
 
         @interactive
-        def mk_ripl(seed,mrid):
+        def mk_seed_ripl(seed,mrid):
             ripls = mripls[mrid]
             ripls.append( make_ripl() )
             ripls[-1].set_seed(seed)
@@ -163,11 +168,13 @@ class MRipl():
             seeds = seeds_lists[mrid]
             seeds.append(seed)
             
-        self.dview.map( mk_ripl, self.seeds, [self.mrid]*self.no_ripls )
+        self.dview.map( mk_seed_ripl, self.seeds, [self.mrid]*self.no_ripls )
         
-        ## FIXME reinstate
+        ## Extract info from engines and ripls
         self.update_ripls_info()
-        print self.display_ripls()
+        
+        self.verbose = verbose
+        if self.verbose: print self.display_ripls()
         
     
     def lst_flatten(self,l): return [el for subl in l for el in subl]
@@ -191,18 +198,52 @@ class MRipl():
         @interactive
         def f(sym,exp,mrid,**kwargs):
             return [ripl.assume(sym,exp,**kwargs) for ripl in mripls[mrid]]
+
+        if self.lite:
+            @interactive
+            def f(sym,exp,mrid,**kwargs):
+                out = [ripl.assume(sym,exp,**kwargs) for ripl in mripls[mrid]]
+                try:
+                    pickle.dumps(out)
+                    return out
+                except:
+                    return [None for ripl in mripls[mrid] ]
+
         return self.lst_flatten( self.dview.apply(f,sym,exp,self.mrid,**kwargs) )
         
+
     def observe(self,exp,val,label=None):
         self.local_ripl.observe(exp,val,label)
         @interactive
         def f(exp,val,label,mrid): return [ripl.observe(exp,val,label) for ripl in mripls[mrid]]
+
+        if self.lite:
+            @interactive
+            def f(exp,val,label,mrid):
+                out=[ripl.observe(exp,val,label) for ripl in mripls[mrid]]
+                try:
+                    pickle.dumps(out)
+                    return out
+                except:
+                    return [None for ripl in mripls[mrid] ]
+                
         return self.lst_flatten( self.dview.apply(f,exp,val,label,self.mrid) )
     
     def predict(self,exp,label=None,type=False):
         self.local_ripl.predict(exp,label,type)
         @interactive
         def f(exp,label,type,mrid): return [ripl.predict(exp,label,type) for ripl in mripls[mrid]]
+
+        if self.lite:
+            @interactive
+            def f(exp,label,type,mrid):
+                out = [ripl.predict(exp,label,type) for ripl in mripls[mrid]]
+                try:
+                    pickle.dumps(out)
+                    return out
+                except:
+                    return [None for ripl in mripls[mrid] ]
+        
         return self.lst_flatten( self.dview.apply(f,exp,label,type,self.mrid) )
 
     def infer(self,params,block=False):
@@ -226,6 +267,15 @@ class MRipl():
         @interactive
         def f(label_or_did,mrid,**kwargs):
             return [ripl.report(label_or_did,**kwargs) for ripl in mripls[mrid]]
+        if self.lite:
+            @interactive
+            def f(label_or_did,mrid,**kwargs):
+                out = [ripl.report(label_or_did,**kwargs) for ripl in mripls[mrid]]
+                try:
+                    pickle.dumps(out)
+                    return out
+                except:
+                    return [None for ripl in mripls[mrid] ]
         return self.lst_flatten( self.dview.apply(f,label_or_did,self.mrid, **kwargs) )
 
     def forget(self,label_or_did):
@@ -240,6 +290,16 @@ class MRipl():
         @interactive
         def f( program_string, params, mrid):
             return  [ripl.execute_program( program_string,params) for ripl in mripls[mrid]]
+            
+        if self.lite:    
+            @interactive
+            def f( program_string, params, mrid):
+                out = [ripl.execute_program( program_string,params) for ripl in mripls[mrid]]
+                try:
+                    pickle.dumps(out)
+                    return out
+                except:
+                    return [None for ripl in mripls[mrid] ]
         return self.lst_flatten( self.dview.apply(f, program_string, params,self.mrid) )
 
     def get_global_logscore(self):
@@ -255,6 +315,16 @@ class MRipl():
         @interactive
         def f(exp,type,mrid):
                return [ripl.sample(exp,type) for ripl in mripls[mrid] ]
+               
+        if self.lite:
+            @interactive
+            def f(exp,type,mrid):
+                out = [ripl.sample(exp,type) for ripl in mripls[mrid] ]
+                try:
+                    pickle.dumps(out)
+                    return out
+                except:
+                    return [None for ripl in mripls[mrid] ]
         return self.lst_flatten( self.dview.apply(f,exp,type,self.mrid) )
 
     def list_directives(self,type=False):
@@ -387,7 +457,7 @@ class MRipl():
             var_type = self.type_list(vals)
             
             if var_type =='float':
-                fig,ax = plt.subplots(nrows=1,ncols=2,sharex=True,figsize=(9,4))
+                fig,ax = plt.subplots(nrows=1,ncols=2,sharex=True,figsize=(8,3.5))
                 xr = np.linspace(min(vals),max(vals),400)
                 ax[0].plot(xr,gaussian_kde(vals)(xr))
                 ax[0].set_xlim([min(vals),max(vals)])
@@ -418,7 +488,7 @@ class MRipl():
         if scatter:
             label0,vals0 = values.items()[0]
             label1,vals1 = values.items()[1]
-            fig, ax  = plt.subplots(figsize=(6,4))
+            fig, ax  = plt.subplots(figsize=(5,3.5))
             ax.scatter(vals0,vals1)
             ax.set_xlabel(label0); ax.set_ylabel(label1)
             ax.set_title('%s vs. %s (transitions: %i, ripls: %i)' % (str(label0),str(label1),
@@ -428,7 +498,7 @@ class MRipl():
         return figs
 
 
-    def probes(self,did_label,no_transitions,no_probes,plot_hist=None,plot_series=None):
+    def probes(self,did_label,no_transitions,no_probes,plot_hist=None,plot_kde=None,plot_series=None):
         ## FIXME, should take a list of labels (like snapshot) and plot accordingly.
         '''Run infer directive on ripls and record snapshots at a series of
         probe points. Optionally produce plots of probe points and a time-series
@@ -437,40 +507,73 @@ class MRipl():
         label = did_label
         start = self.total_transitions
         probes = map(int,np.round( np.linspace(0,no_transitions,no_probes) ) )
+
+        out = {'label':label, 'transition_limits':(start,start+no_transitions),
+                  'probes':probes, 'series':[], 'snapshots':[], }
         
+
+        # initialize list of snapshots and series
+        snapshots = [  self.snapshot(label), ]
         series = [self.snapshot(label)['values'][label], ]
+
         for i in range(len(probes[:-1])):
             self.infer(probes[i+1]-probes[i])
+            snapshots.append( self.snapshot(label) )
             series.append( self.snapshot(label)['values'][label] )
 
-        if plot_hist:
+        out['series'] = series; out['snapshots'] = snapshots
+
+
+        # plotting
+        
+        if plot_hist or plot_kde:  ##FIXME: have better interface
             xmin = min([min(shot) for shot in series])
             xmax = max([max(shot) for shot in series])
             xr = np.linspace(xmin,xmax,400)
             fig,ax = plt.subplots(ncols=no_probes,sharex=True,figsize=(10,5))
-            kdfig,kdax = plt.subplots(ncols=no_probes,sharex=True,figsize=(10,5))
+            
             for i in range(no_probes):
                 ax[i].hist(series[i],bins=12)
-                kdax[i].plot(xr,gaussian_kde(series[i])(xr))
                 ax[i].set_xlim([xmin,xmax])
-                t = '%s: start %i, probe at %i of %i' % (str(label),
+                t = 'Hist %s: start %i, probe %i/%i' % (str(label),
                                                                start,probes[i],
                                                                no_transitions)
-                ax[i].set_title(t); kdax[i].set_title(t)
+                ax[i].set_title(t) 
 
-            fig.tight_layout(); kdfig.tight_layout()
+            fig.tight_layout()
+            out['hist_figs'] = fig
+
+
+        if plot_kde:
+            xmin = min([min(shot) for shot in series])
+            xmax = max([max(shot) for shot in series])
+            xr = np.linspace(xmin,xmax,400)
+            kdfig,kdax = plt.subplots(ncols=no_probes,sharex=True,figsize=(10,5))
+
+            for i in range(no_probes):
+                kdax[i].plot(xr,gaussian_kde(series[i])(xr))
+                ax[i].set_xlim([xmin,xmax])
+                t = 'GKDE %s: start %i, probe %i/%i' % (str(label),
+                                                                           start,probes[i],
+                                                                           no_transitions)
+                kdax[i].set_title(t)
+
+            kdfig.tight_layout()
+            out['kde_figs'] = kdfig
+
 
         if plot_series:
-            fig,ax = plt.subplots()
+            fig,ax = plt.subplots(figsize=(5,3.5))
             for ripl in range(self.no_ripls):
                 vals = [shot[ripl] for shot in series]
                 ax.plot(probes,vals,label='R'+str(ripl))
 
             t = '%s: start %i, probes at %s' % (str(label),start,str(probes))
             ax.set_title(t)
-            #ax.legend()
+            out['timeseries_fig'] = fig
+           
 
-        return probes,series
+        return out
     
 
 
@@ -579,7 +682,8 @@ except:
 ## Use examples: to be moved to dedicated example scripts
 
 def sp(no_ripls=2):    
-    v = MRipl(no_ripls,lite=True)
+    v = MRipl(no_ripls,lite
+=True)
     v.assume('r','(normal 0 30)',label='r')
     v.assume('s','(normal 0 30)',label='s')
     v.assume('w1','(normal (+ r s) 5.)',label='w1')
