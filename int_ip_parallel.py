@@ -149,6 +149,7 @@ class MRipl():
         # IPNB in inline mode for everything to work -- include in examples)
         self.dview.execute('import matplotlib.pylab as plt')
         self.dview.execute('import pickle')
+        self.dview.execute('%pylab inline --no-import-all')
         #self.dview.execute('%pylab inline
         self.dview.push(copy_ripl_dict)
         self.dview.execute(make_mripl_string)
@@ -408,14 +409,15 @@ class MRipl():
         print self.display_ripls()
 
     
-    def snapshot(self,labels_lst, plot=False, scatter=False, logscore=False):
+    def snapshot(self,did_labels_list=[], plot=False, scatter=False, logscore=False):
         '''report the value of a list of variables (input using labels or dids)
         across the ripls and optionally plot as histograms or scatter plots'''
         
-        if not(isinstance(labels_lst,list)): labels_lst = [labels_lst] 
-        values = { did_label: self.report(did_label) for did_label in labels_lst}
+        if not(isinstance(did_labels_list,list)):
+            did_labels_list = [did_labels_list] 
+        values = { did_label:self.report(did_label) for did_label in did_labels_list}
         
-        if logscore: values['log']= self.get_global_logscore()
+        if logscore: values['global_logscore']= self.get_global_logscore()
         
         out = {'values':values,
                'total_transitions':self.total_transitions,
@@ -461,11 +463,11 @@ class MRipl():
                 xr = np.linspace(min(vals),max(vals),400)
                 ax[0].plot(xr,gaussian_kde(vals)(xr))
                 ax[0].set_xlim([min(vals),max(vals)])
-                ax[0].set_title('Gaussian KDE: %s (transitions: %i, ripls: %i)' % (str(label), no_trans, no_ripls) )
+                ax[0].set_title('GKDE: %s (transitions: %i, ripls: %i)' % (str(label), no_trans, no_ripls) )
 
                 ax[1].hist(vals)
                 ax[1].set_title('Hist: %s (transitions: %i, ripls: %i)' % (str(label), no_trans, no_ripls) )
-                [a.set_xlabel('Variable %s' % str(label)) for a in ax]
+                [a.set_xlabel('Var %s' % str(label)) for a in ax]
             
             elif var_type =='int':
                 fig,ax = plt.subplots()
@@ -480,7 +482,7 @@ class MRipl():
                 
             
             else:
-                print 'couldnt plot' ##FIXME, shouldnt add fig to figs
+                print 'cant plot this type of data' ##FIXME, shouldnt add fig to figs
             fig.tight_layout()
             figs.append(fig)
 
@@ -498,13 +500,13 @@ class MRipl():
         return figs
 
 
-    def probes(self,did_label,no_transitions,no_probes,plot_hist=None,plot_kde=None,plot_series=None):
+    def probes(self,did_label='',logscore=False,no_transitions=10,no_probes=2,plot_hist=None,plot_kde=None,plot_series=None):
         ## FIXME, should take a list of labels (like snapshot) and plot accordingly.
         '''Run infer directive on ripls and record snapshots at a series of
         probe points. Optionally produce plots of probe points and a time-series
         plot.'''
         
-        label = did_label
+        label = '' if logscore else did_label
         start = self.total_transitions
         probes = map(int,np.round( np.linspace(0,no_transitions,no_probes) ) )
 
@@ -512,14 +514,25 @@ class MRipl():
                   'probes':probes, 'series':[], 'snapshots':[], }
         
 
-        # initialize list of snapshots and series
-        snapshots = [  self.snapshot(label), ]
-        series = [self.snapshot(label)['values'][label], ]
+        # initialize list of snapshots and series FIXME (once logscore interface fixed, share code)
+        if not(logscore):
+            snapshots = [  self.snapshot( did_labels_list = [label], plot=False, scatter=False, logscore=False ), ]
+            series = [snapshots[-1]['values'][label], ]
 
-        for i in range(len(probes[:-1])):
-            self.infer(probes[i+1]-probes[i])
-            snapshots.append( self.snapshot(label) )
-            series.append( self.snapshot(label)['values'][label] )
+            for i in range(len(probes[:-1])):
+                self.infer(probes[i+1]-probes[i])
+                snapshots.append( self.snapshot( did_labels_list = [label], plot=False, scatter=False, logscore=False ) )
+                series.append( snapshots[-1]['values'][label] )
+
+        else:
+            snapshots = [  self.snapshot( did_labels_list = [], plot=False, scatter=False, logscore=True ), ]
+            series = [snapshots[-1]['values']['global_logscore'], ] 
+
+            for i in range(len(probes[:-1])):
+                self.infer(probes[i+1]-probes[i])
+                snapshots.append( self.snapshot( did_labels_list = [], plot=False, scatter=False, logscore=True ) )
+                series.append( snapshots[-1]['values']['global_logscore'] )
+
 
         out['series'] = series; out['snapshots'] = snapshots
 
@@ -628,7 +641,7 @@ def mr_map(line, cell):
     
     outputs_by_ripl = lst_flatten( mripl.dview.apply( interactive(lambda: results[-1])) ) # pull the result of map_proc
     
-    ip.run_cell_magic("px",'','pass') #'plt.show()') # display any figs inline
+    ip.run_cell_magic("px",'','pass;') #'plt.show()') # display any figs inline
 
     out_dict = {'info':{'mripl':mripl_name,'proc':proc_name}, 'out':outputs_by_ripl }
     
