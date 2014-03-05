@@ -173,7 +173,15 @@ def logscores(mr,name='Model'):
     return np.mean(logscore), np.max(logscore)
 
 
-def plot_cond(ripl,no_reps=50):
+def get_name(r_mr):
+    if 'model_name' in str(r_mr.list_directives()):
+        try:
+            return r_mr.sample('model_name')
+        except: pass
+    return 'anon model'
+
+
+def plot_cond(ripl,no_reps=50,plot=True):
     '''Plot f(x) with 1sd noise curves. Plot y_x with #(no_reps)
     y values for each x. Use xrange with limits based on posterior on P(x).'''
     
@@ -185,32 +193,43 @@ def plot_cond(ripl,no_reps=50):
     f_xr = [ripl.sample('(f %f)' % x) for x in xr]
     
     # gaussian noise 1sd
-    if 'model_name' in str(ripl.list_directives()):
-        try: model_name = ripl.sample('model_name')
-        except: pass
-    else:
-        model_name = 'anon model'
+    model_name=get_name(ripl)
     noise=ripl.sample('(noise 0)') if model_name=='pivot' else ripl.sample('noise')
     f_a = [fx+noise for fx in f_xr]
     f_b = [fx-noise for fx in f_xr]
 
     # scatter for y conditional on x
-    y_x = [  [ripl.sample('(y_x %f)' % x) for r in range(no_reps)] for x in xr]
-    fig,ax = plt.subplots(1,2,figsize=(9,2),sharex=True,sharey=True)
-    ax[0].scatter(xs,ys)
-    ax[0].set_color_cycle(['m', 'gray','gray'])
-    ax[0].plot(xr,f_xr,xr,f_a,xr,f_b)
-    ax[0].set_title('Data and inferred f with 1sd noise (name= %s )' % model_name)
+    if plot:
+        y_x = [  [ripl.sample('(y_x %f)' % x) for r in range(no_reps)] for x in xr]
+        fig,ax = plt.subplots(1,2,figsize=(12,4),sharex=True,sharey=True)
+        ax[0].scatter(xs,ys)
+        ax[0].set_color_cycle(['m', 'gray','gray'])
+        ax[0].plot(xr,f_xr,xr,f_a,xr,f_b)
+        ax[0].set_title('Data and inferred f with 1sd noise (name= %s )' % model_name)
+
+        [ ax[1].scatter(xr,[y[i] for y in y_x],s=5,c='gray') for i in range(no_reps) ]
+        ax[1].set_title('Single ripl: P(y/X=x,params fixed) for uniform x-range (name= %s)' % model_name)
+        fig.tight_layout()
+    return xr,y_x
+
+
+def plot_joint(ripl,no_reps=300):
+    '''Sample from joint P(x,y) and plot as histogram and kde.'''
+    xs = [ ripl.sample('(x_d)') for i in range(no_reps) ]
+    ys = [ ripl.sample('(y_x %f)' % x) for x in xs]
     
-    [ ax[1].scatter(xr,[y[i] for y in y_x],s=6) for i in range(no_reps) ]
-    ax[1].set_title('Single ripl: P(y/x) for uniform x-range (name= %s)' % model_name)
-    
+    fig,ax = plt.subplots(1,2,figsize=(12,4),sharex=False,sharey=False)
+    ax[0].scatter(xs,ys,s=5,c='gray')
+    ax[0].set_title('Single ripl: %i samples from P(x,y)' % no_reps)
+    H, xedges, yedges = np.histogram2d(xs, ys, bins=(10, 10))
+    extent = [yedges[0], yedges[-1], xedges[-1], xedges[0]]
+    ax[1].imshow(H, extent=extent, interpolation='nearest')
+    ax[1].set_title('Single ripl: hist of %i samples from P(x,y) (name= %s)' % no_reps,get_name(ripl) )
     return xs,ys
 
 
 def plot_ygivenx(mr,x):
     return mr.snapshot(exp_list=['(y_x %f)' % x ],plot=True)
-
 
 def plot_xgiveny(mr,y,no_transitions=100):
     '''P(x / Y=y), by combining ripls in mr. Works by finding next unused observation
@@ -232,28 +251,13 @@ def plot_xgiveny(mr,y,no_transitions=100):
     return snapshot
 
 
-def plot_joint(ripl,no_reps=300):
-    '''Sample from joint P(x,y) and plot as histogram and kde.'''
-    xs = [ ripl.sample('(x_d)') for i in range(no_reps) ]
-    ys = [ ripl.sample('(y_x %f)' % x) for x in xs]
-    
-    fig,ax = plt.subplots(1,2,figsize=(9,2),sharex=False,sharey=False)
-    ax[0].scatter(xs,ys)
-    ax[0].set_title('Single ripl: %i samples from P(y,x)' % no_reps)
-    H, xedges, yedges = np.histogram2d(xs, ys, bins=(10, 10))
-    extent = [yedges[0], yedges[-1], xedges[-1], xedges[0]]
-    ax[1].imshow(H, extent=extent, interpolation='nearest')
-    ax[1].set_title('Single ripl: hist of %i samples from P(y,x)' % no_reps)
-    return xs,ys
-
-
 def params_compare(mr,exp_pair,xys,no_transitions,plot=False):
     '''Look at dependency as data comes in'''
     
     # get prior values
     out_pr = mr.snapshot(exp_list=exp_pair,plot=plot,scatter=False)
-    vals_pr = out_pr[-1]['values']
-    out_list = []; vals_list=[] 
+    vals_pr = out_pr['values']
+    out_list = [out_pr]; vals_list=[vals_pr] 
     
     # add observes
     for i,xy in enumerate(xys):
@@ -261,45 +265,69 @@ def params_compare(mr,exp_pair,xys,no_transitions,plot=False):
         out_list.append( mr.snapshot(exp_list=exp_pair,plot=plot,scatter=False) )
         vals_list.append( out_list[-1]['values'] )
         
-    # plot prior
-    fig,ax = plt.subplots(size
-    ax[0,0].scatter(vals_list[i][exp_pair[0]], vals_list[i][exp_pair[0]], s=6))
-    ax[0,0].set_title('%s vs. %s (prior)' % (exp_pair[0],exp_pair[1]))
-    ax[0,0].set_xlabel(exp_pair[0]); ax[i,0].set_ylabel(exp_pair[1])
-    
-    xys=np.array(xys); xs=xys[:,0]; ys=xys[:,1]
+    xys=np.array(xys); xs=[None] + list( xys[:,0] ); ys=[None] + list( xys[:,1] )
 
-    fig,ax = plt.subplots(len(xys)+1,2,figsize=(13,4))
-    for i,xy in enumerate(xys):
-        ax[i,0].scatter(vals_list[i][exp_pair[0]], vals_list[i][exp_pair[0]], s=6)
+    fig,ax = plt.subplots(len(vals_list), 2, figsize=(12,len(vals_list)*4))
+
+    for i,vals in enumerate(vals_list):
+        ax[i,0].scatter( vals[exp_pair[0]], vals[exp_pair[1]], s=6)
         ax[i,0].set_title('%s vs. %s' % (exp_pair[0],exp_pair[1]))
         ax[i,0].set_xlabel(exp_pair[0]); ax[i,0].set_ylabel(exp_pair[1])
-        ax[i,1].scatter(xs[:i], ys[:i], c='blue')
-        ax[i,1].scatter(xs[i], ys[i], c='red')
-        ax[i,1].set_title('Observed data with new point')
+        if i>0:
+            ax[i,1].scatter(xs[1:i], ys[1:i], c='blue') ## FIXME start from 1 to ignore prior
+            ax[i,1].scatter(xs[i], ys[i], c='red')
+            ax[i,1].set_title('Observed data with new point')
         
     fig.tight_layout()
     return fig,vals_list
 
+
 def test_params_compare():
-    xys = [(2,20),(0,0),(0.5,2),(-0.4,2)]#,(1,5)]#,(-1,5),(2.5,31)] # y=5x^2
-    v_pivt = MRipl(20,lite=lite,verbose=False); v_pivcrp = MRipl(2,lite=lite,verbose=False)
-    vs = [v_pivt,v_pivcrp]
+    xys = [(2,20),(0,0),(0.5,2),(-0.4,2),(1,5),(-1,5),(2.5,31)] # y=5x^2
+    v_pivt = MRipl(40,lite=lite,verbose=False); v_pivcrp = MRipl(2,lite=lite,verbose=False)
+    vs = [v_pivt]#,v_pivcrp] FIXME
     v_pivt.execute_program(x_model_t+quad_fourier_model)
     v_pivcrp.execute_program(x_model_crp+quad_fourier_model)
     
-    no_transitions=50
+    no_transitions=75
     outs=[params_compare(v,['w2','noise'],xys,no_transitions) for v in vs]
     return None
 
+
+def plot_posterior_conditional(mr,no_reps=50,xr=None):    
+    if not(xr):
+        # find x-range from min/max of observed points
+        # only look at output of first ripl
+        n = int( np.round( mr.sample('n')[0] ) )  #FIXME
+        xs = [mr.sample('(x %i)' % i)[0] for i in range(n)]
+        ys = [mr.sample('(y %i)' % i)[0] for i in range(n)]
+        xr = np.linspace(1.5*min(xs),1.5*max(xs),20)
+
+    if plot:
+        # = [ [samples from (y_x x)] for x in xr]
+        #where higher no_reps only gives better picture of individual noise
+        y_x = [  if_lst_flatten( [mr.sample('(y_x %f)' % x) for r in range(no_reps)] ) for x in xr]
+          
+        fig,ax = plt.subplots(figsize=(10,5),sharex=True,sharey=True)
+        if xr: ax.scatter(xs,ys,c='m')
+    
+        [ ax.scatter(xr,[y[i] for y in y_x],s=6,c=.6) for i in range(no_reps) ]
+        ax.set_title('Mripl: P(y/X=x) for uniform x-range (name= %s)' % get_name(mr))
+    return xr,y_x
+
+def test_plot_posterior_conditional():
+    pass
+    
 
 def if_lst_flatten(l):
     if type(l[0])==list: return [el for subl in l for el in subl]
     return l
 
+
 def test_funcs(mripl=False,n=14,fast=False):
+    if fast: n=8
     xys = generate_data(n,xparams=[0,3],yparams=[0,0,1,0,0],sin=False) # y=x^2
-    if fast: xys = generate_data(8,xparams=[0,3],yparams=[0,0,1,0,0],sin=False) # y=x^2
+        
     if mripl:
         v_piv = MRipl(2,lite=lite,verbose=False); v_fo = MRipl(2,lite=lite,verbose=False)
         vs = [v_piv,v_fo]
