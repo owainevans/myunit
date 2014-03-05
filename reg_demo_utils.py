@@ -145,13 +145,23 @@ def generate_data(n,xparams=None,yparams=None,sin=True):
     return xys
 
 
-def observe_infer(vs,xys,no_transitions,withn=True):
+def observe_infer(vs,xys,no_transitions,with_index=False,withn=True):
     '''Input is list of ripls or mripls, xy pairs and no_transitions. Optionally
-    observe the n variable to be the len(xys).'''
-    for i,(x,y) in enumerate(xys):
-        [v.observe('(x %i)' % i , '%f' % x, label='x%i' % i) for v in vs]
-        [v.observe('(y %i)' % i , '%f' % y, label='y%i' % i ) for v in vs]
+    observe the n variable to be the len(xys). We can either index the observations
+    or we can treat them as drawn from x_d and y_x, which do not memoize but depend
+    on the same hidden params. (Alternatively we could work out the last index and
+    start from there).'''
+    if with_index:
+        for i,(x,y) in enumerate(xys):
+            [v.observe('(x %i)' % i , '%f' % x, label='x%i' % i) for v in vs]
+            [v.observe('(y %i)' % i , '%f' % y, label='y%i' % i ) for v in vs]
+    else:        
+        ## FIXME find some good labeling scheme
+        for i,(x,y) in enumerate(xys):
+            [v.observe('(x_d)', '%f' % x ) for v in vs]
+            [v.observe('(y_x %f)' % x , '%f' % y ) for v in vs]
     if withn: [v.observe('n','%i' % len(xys)) for v in vs]
+
     [v.infer(no_transitions) for v in vs];
 
 
@@ -237,16 +247,59 @@ def plot_joint(ripl,no_reps=300):
     return xs,ys
 
 
+def params_compare(mr,exp_pair,xys,no_transitions,plot=False):
+    '''Look at dependency as data comes in'''
+    
+    # get prior values
+    out_pr = mr.snapshot(exp_list=exp_pair,plot=plot,scatter=False)
+    vals_pr = out_pr[-1]['values']
+    out_list = []; vals_list=[] 
+    
+    # add observes
+    for i,xy in enumerate(xys):
+        observe_infer([mr],[xy],no_transitions,with_index=False,withn=False) # FIXME obs n somewhere?
+        out_list.append( mr.snapshot(exp_list=exp_pair,plot=plot,scatter=False) )
+        vals_list.append( out_list[-1]['values'] )
+        
+    # plot prior
+    fig,ax = plt.subplots(size
+    ax[0,0].scatter(vals_list[i][exp_pair[0]], vals_list[i][exp_pair[0]], s=6))
+    ax[0,0].set_title('%s vs. %s (prior)' % (exp_pair[0],exp_pair[1]))
+    ax[0,0].set_xlabel(exp_pair[0]); ax[i,0].set_ylabel(exp_pair[1])
+    
+    xys=np.array(xys); xs=xys[:,0]; ys=xys[:,1]
 
+    fig,ax = plt.subplots(len(xys)+1,2,figsize=(13,4))
+    for i,xy in enumerate(xys):
+        ax[i,0].scatter(vals_list[i][exp_pair[0]], vals_list[i][exp_pair[0]], s=6)
+        ax[i,0].set_title('%s vs. %s' % (exp_pair[0],exp_pair[1]))
+        ax[i,0].set_xlabel(exp_pair[0]); ax[i,0].set_ylabel(exp_pair[1])
+        ax[i,1].scatter(xs[:i], ys[:i], c='blue')
+        ax[i,1].scatter(xs[i], ys[i], c='red')
+        ax[i,1].set_title('Observed data with new point')
+        
+    fig.tight_layout()
+    return fig,vals_list
 
+def test_params_compare():
+    xys = [(2,20),(0,0),(0.5,2),(-0.4,2)]#,(1,5)]#,(-1,5),(2.5,31)] # y=5x^2
+    v_pivt = MRipl(20,lite=lite,verbose=False); v_pivcrp = MRipl(2,lite=lite,verbose=False)
+    vs = [v_pivt,v_pivcrp]
+    v_pivt.execute_program(x_model_t+quad_fourier_model)
+    v_pivcrp.execute_program(x_model_crp+quad_fourier_model)
+    
+    no_transitions=50
+    outs=[params_compare(v,['w2','noise'],xys,no_transitions) for v in vs]
+    return None
 
 
 def if_lst_flatten(l):
     if type(l[0])==list: return [el for subl in l for el in subl]
     return l
 
-def test_funcs(mripl=False,n=14):
+def test_funcs(mripl=False,n=14,fast=False):
     xys = generate_data(n,xparams=[0,3],yparams=[0,0,1,0,0],sin=False) # y=x^2
+    if fast: xys = generate_data(8,xparams=[0,3],yparams=[0,0,1,0,0],sin=False) # y=x^2
     if mripl:
         v_piv = MRipl(2,lite=lite,verbose=False); v_fo = MRipl(2,lite=lite,verbose=False)
         vs = [v_piv,v_fo]
@@ -254,7 +307,7 @@ def test_funcs(mripl=False,n=14):
         v_piv = mk_c(); v_fo=mk_c(); vs = [v_piv,v_fo]
     v_piv.execute_program(x_model_t+pivot_model); v_fo.execute_program(x_model_t+quad_fourier_model)
 
-    observe_infer(vs,xys,300,withn=True)
+    observe_infer(vs,xys,50,withn=True) if fast else observe_infer(vs,xys,300,withn=True)
 
     [logscores(v) for v in vs]
 
@@ -265,20 +318,25 @@ def test_funcs(mripl=False,n=14):
 
     if mripl: ## FIXME look over this test again
         outs = [mr_map_nomagic(v,plot_joint,limit=1)['out'][0] for v in vs]
-        
         for out in outs:
             xs,ys = out
             print np.mean(xs), np.mean(ys)
-            assert( 2 > np.abs( np.mean(xs) ) )
+            if not(fast):
+                assert( 2 > np.abs( np.mean(xs) ) )
+            else:
+                assert( 4 > np.abs( np.mean(xs) ) )
     else:
-        outs=[plot_joint(v) for v in vs]
+        outs=[plot_joint(v,no_reps=200) for v in vs]
         for out in outs:
             xs,ys = out
-            assert( 2 > np.abs( np.mean(xs) ) )
-            
+            if not(fast):
+                assert( 2 > np.abs( np.mean(xs) ) )
+            else:
+                assert( 4 > np.abs( np.mean(xs) ) )
+        
 
     # in-sample guess should be close to true vals after enough inference
-    [v.infer(300) for v in vs]
+    [v.infer(300) for v in vs] if not(fast) else [v.infer(100) for v in vs]
     f0 = if_lst_flatten( [v.predict('(f 0)') for v in vs] )
     f1 = if_lst_flatten( [v.predict('(f 1)') for v in vs] )
     f1 = if_lst_flatten( [v.predict('(f -1)') for v in vs] )
@@ -295,6 +353,8 @@ def test_funcs(mripl=False,n=14):
         xgiven0 = np.array( snap_outs[0]['values'].values()[0] )
         assert all( 6 > np.abs((0 - xgiven0) ) )
     
+
+
 
    
 
