@@ -17,7 +17,7 @@ def kde_plot(x,y):
     return fig,ax
 
 from venture.venturemagics.ip_parallel import *; 
-lite=False; clear_all_engines()
+lite=False; 
 mk_l = make_lite_church_prime_ripl; mk_c = make_church_prime_ripl
 
 
@@ -173,12 +173,16 @@ def logscores(mr,name='Model'):
     return np.mean(logscore), np.max(logscore)
 
 
-def get_name(r_mr):
-    if 'model_name' in str(r_mr.list_directives()):
+def get_name(r_mr):  # FIXME dealing with ripl vs. mripl
+    mr=1 if isinstance(r_mr,MRipl) else 0
+    di_l = r_mr.list_directives()[0] if mr else r_mr.list_directives()
+    if 'model_name' in str(di_l):
         try:
-            return r_mr.sample('model_name')
+            n = r_mr.sample('model_name')[0] if mr else r_mr.sample('model_name')
+            return n
         except: pass
-    return 'anon model'
+    else:
+        return 'anon model'
 
 
 def plot_cond(ripl,no_reps=50,plot=True):
@@ -213,18 +217,18 @@ def plot_cond(ripl,no_reps=50,plot=True):
     return xr,y_x
 
 
-def plot_joint(ripl,no_reps=300):
+def plot_joint(ripl,no_reps=500):
     '''Sample from joint P(x,y) and plot as histogram and kde.'''
     xs = [ ripl.sample('(x_d)') for i in range(no_reps) ]
     ys = [ ripl.sample('(y_x %f)' % x) for x in xs]
     
-    fig,ax = plt.subplots(1,2,figsize=(12,4),sharex=False,sharey=False)
+    fig,ax = plt.subplots(1,2,figsize=(12,4),sharex=True,sharey=True)
     ax[0].scatter(xs,ys,s=5,c='gray')
     ax[0].set_title('Single ripl: %i samples from P(x,y)' % no_reps)
-    H, xedges, yedges = np.histogram2d(xs, ys, bins=(10, 10))
+    H, xedges, yedges = np.histogram2d(xs, ys, bins=(12, 12))
     extent = [yedges[0], yedges[-1], xedges[-1], xedges[0]]
     ax[1].imshow(H, extent=extent, interpolation='nearest')
-    ax[1].set_title('Single ripl: hist of %i samples from P(x,y) (name= %s)' % no_reps,get_name(ripl) )
+    ax[1].set_title('Single ripl: hist of %i samples from P(x,y) (name= %s)' % (no_reps,get_name(ripl)) )
     return xs,ys
 
 
@@ -282,20 +286,10 @@ def params_compare(mr,exp_pair,xys,no_transitions,plot=False):
     return fig,vals_list
 
 
-def test_params_compare():
-    xys = [(2,20),(0,0),(0.5,2),(-0.4,2),(1,5),(-1,5),(2.5,31)] # y=5x^2
-    v_pivt = MRipl(40,lite=lite,verbose=False); v_pivcrp = MRipl(2,lite=lite,verbose=False)
-    vs = [v_pivt]#,v_pivcrp] FIXME
-    v_pivt.execute_program(x_model_t+quad_fourier_model)
-    v_pivcrp.execute_program(x_model_crp+quad_fourier_model)
-    
-    no_transitions=75
-    outs=[params_compare(v,['w2','noise'],xys,no_transitions) for v in vs]
-    return None
-
-
-def plot_posterior_conditional(mr,no_reps=50,xr=None):    
-    if not(xr):
+def plot_posterior_conditional(mr,no_reps=50,set_xr=None,plot=True):    
+    if set_xr:
+        xr = set_xr
+    else:
         # find x-range from min/max of observed points
         # only look at output of first ripl
         n = int( np.round( mr.sample('n')[0] ) )  #FIXME
@@ -309,20 +303,80 @@ def plot_posterior_conditional(mr,no_reps=50,xr=None):
         y_x = [  if_lst_flatten( [mr.sample('(y_x %f)' % x) for r in range(no_reps)] ) for x in xr]
           
         fig,ax = plt.subplots(figsize=(10,5),sharex=True,sharey=True)
-        if xr: ax.scatter(xs,ys,c='m')
+        if set_xr: ax.scatter(xs,ys,c='m')
     
-        [ ax.scatter(xr,[y[i] for y in y_x],s=6,c=.6) for i in range(no_reps) ]
+        [ ax.scatter(xr,[y[i] for y in y_x],s=6,c='gray') for i in range(no_reps) ]
         ax.set_title('Mripl: P(y/X=x) for uniform x-range (name= %s)' % get_name(mr))
     return xr,y_x
 
-def test_plot_posterior_conditional():
-    pass
+
+def plot_posterior_joint(mr,no_reps=500,plot=True):
+    xy_st ='( (lambda (xval) (list xval (y_x xval)) ) (x_d) )'
+    xys = if_lst_flatten( [mr.sample(xy_st) for i in range(no_reps) ] )
+    print xys[:5]
+    xs= [xy[0] for xy in xys]; ys=[xy[1] for xy in xys]
+    
+    fig,ax = plt.subplots(1,2,figsize=(12,4),sharex=False,sharey=False)
+    ax[0].scatter(xs,ys,s=5,c='m')
+    ax[0].set_title('Samples from P(x,y). (%i ripls, %i reps)' % (mr.no_ripls,
+                                                                 no_reps) )
+    H, xedges, yedges = np.histogram2d(xs, ys, bins=(12, 12))
+    extent = [yedges[0], yedges[-1], xedges[-1], xedges[0]]
+    ax[1].imshow(H, extent=extent, interpolation='nearest')
+    ax[1].set_title('MRipl: hist of %i samples from P(x,y) (name= %s)' % (no_reps,get_name(mr)) )
+    return xys
+
+
+def test_ppj():
+    xys = generate_data(14,xparams=[0,1],yparams=[0,0,1,0,0],sin=False) # y=x^2
+    v_piv = MRipl(10,lite=lite,verbose=False);
+    v_piv.execute_program(x_model_t+pivot_model)
+    observe_infer([v_piv],xys,300)
+    xys=np.array(plot_posterior_joint(v_piv,no_reps=40))
+    xs=xys[:,0], ys=xys[:,1]
+    assert .5 > abs( np.mean(xs) )
+    assert abs( np.mean(ys) ) > abs( np.mean(xs) )
+
+    return None
+
+def test_params_compare():
+    xys = [(2,20),(0,0),(0.5,2),(-0.4,2),(1,5),(-1,5),(2.5,31)] # y=5x^2
+    v_pivt = MRipl(40,lite=lite,verbose=False); v_pivcrp = MRipl(2,lite=lite,verbose=False)
+    vs = [v_pivt]#,v_pivcrp] FIXME
+    v_pivt.execute_program(x_model_t+quad_fourier_model)
+    v_pivcrp.execute_program(x_model_crp+quad_fourier_model)
+    
+    no_transitions=75
+    outs=[params_compare(v,['w2','noise'],xys,no_transitions) for v in vs]
+    return None
     
 
+def test_plot_posterior_conditional():
+    # check inference quality.piv and fo should learn y=x^2. hence posterior when 
+    # xr~0 is mean~0 (both models should have relevant symmetry)
+    xys = generate_data(14,xparams=[0,1],yparams=[0,0,1,0,0],sin=False) # y=x^2
+    v_piv = MRipl(10,lite=lite,verbose=False);
+    v_fo = MRipl(10,lite=lite,verbose=False)
+    v_piv.execute_program(x_model_t+pivot_model)
+    v_fo.execute_program(x_model_t+quad_fourier_model)
+    vs = [v_piv,v_fo]
+
+    observe_infer(vs,xys,200,withn=True)
+    v_out= [plot_posterior_conditional(v, no_reps=20) for v in vs]
+    
+    for xr,y_x in v_out:
+        fil=[]
+        for i,x in enumerate(xr):
+            if abs(x)<.1: fil.append(y_x[i])
+        print fil
+        assert .1 > np.mean(fil)    
+ 
+    
 def if_lst_flatten(l):
     if type(l[0])==list: return [el for subl in l for el in subl]
     return l
-
+    
+    
 
 def test_funcs(mripl=False,n=14,fast=False):
     if fast: n=8
@@ -354,7 +408,7 @@ def test_funcs(mripl=False,n=14,fast=False):
             else:
                 assert( 4 > np.abs( np.mean(xs) ) )
     else:
-        outs=[plot_joint(v,no_reps=200) for v in vs]
+        outs=[plot_joint(v,no_reps=500) for v in vs]
         for out in outs:
             xs,ys = out
             if not(fast):
