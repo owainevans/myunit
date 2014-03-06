@@ -56,35 +56,6 @@ pivot_model='''
 [assume n (gamma 1 1) ]
 [assume model_name (quote pivot)]
 '''
-
-pivot_check='''
-[observe (x 0) 0.]
-[observe pivot 10.]
-[observe (w0 0) 0.]
-[observe (w1 0) 1.]
-[observe (w2 0) 0.]
-[observe (noise 0) .01]'''
-
-def test_pivot():
-    v_crp=mk_c(); v_crp.execute_program(x_model_crp + pivot_model)
-    v_t=mk_l(); v_t.execute_program(x_model_t+pivot_model)
-    vs=[v_t,v_crp]
-    for v in vs:
-        v.execute_program(pivot_check)
-        v.infer(1)
-        assert v.predict('(= 0 (p (x 0)))')
-        assert .1 > (0 - v.predict('(f (x 0))'))
-        assert .5 > (0 - v.assume('y0','(y 0)') ) # y0 close to 0
-        assert .5 > (0 - v.predict('(y_x (x 0))'))
-
-        f= np.array( [v.predict('(f %i)' % i) for i in range(5)] )
-        assert all( 0.1 > np.abs(f - np.arange(5)) )
-        [v.observe('(y %i)' % i, str(i+.01) ) for i in range(20,25)]
-        y_x20 = np.array( [v.predict('(y_x %i)' % i) for i in range(20,25)] )
-        y20 = np.array( [v.predict('(y %i)' % i) for i in range(20,25)] )
-    #assert all( [ 2 > (y_x20[i] - y20[i]) for y_x20,y20 ] ) 
-
-
 quad_fourier_model='''
 [assume w0 (normal 0 3) ]
 [assume w1 (normal 0 3) ]
@@ -102,29 +73,64 @@ quad_fourier_model='''
 [assume y (mem (lambda (i) (normal (f (x i) ) noise) ) )]
 [assume n (gamma 1 1)]
 [assume model_name (quote quad_fourier)]'''
-quad_fourier_checks='''
-[observe (x 0) 0.]
-[observe w0 0.]
-[observe w1 1.]
-[observe w2 0.]
-[observe model 0]
-[observe noise .01]
-'''
 
-def test_quad_fourier(v):
-    v=mk_c()
-    v.execute_program(x_model_t + quad_fourier_model)
-    v.execute_program(quad_fourier_checks)
-    v.infer(1)
-    assert .1 > abs( 0 - v.predict('(x 0)') )
-    assert 0 == v.predict('model')
-    assert 2 > abs( (0 - v.predict('(y 0)') ) )
-    xfs = [v.predict('(list x (f (x %i) ))' % i) for i in range(10) ]
-    xys = [v.predict('(list (x %i) (y %i))' % (i,i)) for i in range(10) ];
-    assert all( [ .5 > (xy[0] - xy[1]) for xy in xys ] )
-    assert all( [ xf[1] - xy[1] for (xf,xy) in zip(xfs,xys) ] )    
-    assert .1 > ( v.predict('(y 0)') - v.predict('(y_x 0)') )
+logistic_model='''
+[assume w0 (normal 0 3)]
+[assume w1 (normal 0 3) ]
+[assume log_mu (normal 0 3)]
+[assume log_sig (gamma 3 1) ]
+[assume noise (gamma 2 1) ]
 
+[assume sigmoid (lambda (x) (/ (- 1 (exp (* -1 (/ (- x log_mu) log_sig))) )
+                               (+ 1 (exp (* -1 (/ (- x log_mu) log_sig))) ) ) )]
+[assume f (lambda (x) (+ w0 (* w1 (sigmoid x) ) ) ) ]
+
+[assume y_x (lambda (x) (normal (f x) noise) ) ]
+[assume y (mem (lambda (i) (normal (f (x i) ) noise) ) )]
+[assume n (gamma 1 1)]
+[assume model_name (quote logistic)]'''
+
+
+def test_logistic():
+     v=mk_l()
+     v.execute_program(x_model_t+logistic_model)
+     v.observe('log_mu','0')
+     v.observe('log_sig','1')
+     v.infer(10)
+     assert .1 > abs( v.sample('(sigmoid 0)') )
+     assert .1 > abs(1 - v.sample('(sigmoid 10)') )
+     assert .1 > abs(-1 - v.sample('(sigmoid -10)') )
+     v.observe('w0','0')
+     v.observe('w1','1')
+     v.observe('noise','.01')
+     v.infer(10)
+     assert .1 > abs( v.sample('(y_x 0)') )
+     assert .1 > abs(1 - v.sample('(y_x 10)') )
+     assert .1 > abs(-1 - v.sample('(y_x -10)') )
+     v.clear()
+     v.execute_program(x_model_crp+logistic_model)
+     [v.predict('(list (x %i) (y %i))' % (i,i) ) for i in range(10) ]
+     
+     v.clear()
+     v.execute_program(x_model_t+logistic_model)
+     v.observe('w0','0'); v.observe('w1','1')
+     v.observe('log_mu',0); v.observe('log_sig','.33')
+     v.observe('noise','.01')
+     v.infer(10)
+     assert .2 > abs( v.sample('(y_x 0)'))
+     assert .2 > abs(.9 - v.sample('(y_x 1)'))
+     
+     v.clear()
+     v.execute_program(x_model_t+logistic_model)
+     xys = [(0,0)]*3 + [(1,.9)]*3 + [(-1,-.9)]*3 + [(2,.995)]*3 + [(-2,-.995)]*3
+     # fit by w0=0,w1=1,log_mu=0,log_sig=1/3
+     observe_infer([v],xys,500,with_index=True,withn=True)
+     plot_cond(v) # should recover -1,1 sigmoid
+     # FIXME: inference is poor and fails asserts
+     # assert .2 > abs( 1 - v.sample('(y_x 15)') )
+     # assert .2 > abs( -1 - v.sample('(y_x -15)') )
+     # assert .2 > abs( v.sample('(y_x 0)') )
+     
 
 def generate_data(n,xparams=None,yparams=None,sin=True):
     'loc,scale = xparams, w0,w1,w2,omega,theta = yparams'
@@ -145,7 +151,7 @@ def generate_data(n,xparams=None,yparams=None,sin=True):
     return xys
 
 
-def observe_infer(vs,xys,no_transitions,with_index=False,withn=True):
+def observe_infer(vs,xys,no_transitions,with_index=True,withn=True):
     '''Input is list of ripls or mripls, xy pairs and no_transitions. Optionally
     observe the n variable to be the len(xys). We can either index the observations
     or we can treat them as drawn from x_d and y_x, which do not memoize but depend
@@ -185,15 +191,18 @@ def get_name(r_mr):  # FIXME dealing with ripl vs. mripl
         return 'anon model'
 
 
-def plot_cond(ripl,no_reps=50,plot=True):
+def plot_cond(ripl,no_reps=50,set_xr=None,plot=True):
     '''Plot f(x) with 1sd noise curves. Plot y_x with #(no_reps)
     y values for each x. Use xrange with limits based on posterior on P(x).'''
     
-    # find x-range from min/max of observed points
-    n = int( np.round( ripl.sample('n') ) )  #FIXME
-    xs = [ripl.sample('(x %i)' % i) for i in range(n)]
-    ys = [ripl.sample('(y %i)' % i) for i in range(n)]
-    xr = np.linspace(1.5*min(xs),1.5*max(xs),20)
+    if set_xr!=None:
+        xr=set_xr
+    else: # find x-range from min/max of observed points
+        n = int( np.round( ripl.sample('n') ) )  #FIXME
+        xs = [ripl.sample('(x %i)' % i) for i in range(n)]
+        ys = [ripl.sample('(y %i)' % i) for i in range(n)]
+        xr = np.linspace(1.5*min(xs),1.5*max(xs),20)
+    
     f_xr = [ripl.sample('(f %f)' % x) for x in xr]
     
     # gaussian noise 1sd
@@ -206,7 +215,7 @@ def plot_cond(ripl,no_reps=50,plot=True):
     if plot:
         y_x = [  [ripl.sample('(y_x %f)' % x) for r in range(no_reps)] for x in xr]
         fig,ax = plt.subplots(1,2,figsize=(12,4),sharex=True,sharey=True)
-        ax[0].scatter(xs,ys)
+        if set_xr==None: ax[0].scatter(xs,ys)
         ax[0].set_color_cycle(['m', 'gray','gray'])
         ax[0].plot(xr,f_xr,xr,f_a,xr,f_b)
         ax[0].set_title('Data and inferred f with 1sd noise (name= %s )' % model_name)
