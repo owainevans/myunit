@@ -56,10 +56,11 @@ pivot_model='''
 [assume n (gamma 1 1) ]
 [assume model_name (quote pivot)]
 '''
+
 quad_fourier_model='''
 [assume w0 (normal 0 3) ]
 [assume w1 (normal 0 3) ]
-[assume w2 (normal 0 3) ]
+[assume w2 (normal 0 1) ]
 [assume omega (normal 0 3) ]
 [assume theta (normal 0 3) ]
 [assume noise (gamma 2 1) ]
@@ -78,11 +79,11 @@ logistic_model='''
 [assume w0 (normal 0 3)]
 [assume w1 (normal 0 3) ]
 [assume log_mu (normal 0 3)]
-[assume log_sig (gamma 3 1) ]
+[assume log_sig (normal 0 3) ]
 [assume noise (gamma 2 1) ]
 
-[assume sigmoid (lambda (x) (/ (- 1 (exp (* -1 (/ (- x log_mu) log_sig))) )
-                               (+ 1 (exp (* -1 (/ (- x log_mu) log_sig))) ) ) )]
+[assume sigmoid (lambda (x) (/ (- 1 (exp (* (- x log_mu) (* -1 log_sig) )) )
+                               (+ 1 (exp (* (- x log_mu) (* -1 log_sig) )) ) ) )]
 [assume f (lambda (x) (+ w0 (* w1 (sigmoid x) ) ) ) ]
 
 [assume y_x (lambda (x) (normal (f x) noise) ) ]
@@ -91,46 +92,63 @@ logistic_model='''
 [assume model_name (quote logistic)]'''
 
 
-def test_logistic():
-     v=mk_l()
-     v.execute_program(x_model_t+logistic_model)
-     v.observe('log_mu','0')
-     v.observe('log_sig','1')
-     v.infer(10)
-     assert .1 > abs( v.sample('(sigmoid 0)') )
-     assert .1 > abs(1 - v.sample('(sigmoid 10)') )
-     assert .1 > abs(-1 - v.sample('(sigmoid -10)') )
-     v.observe('w0','0')
-     v.observe('w1','1')
-     v.observe('noise','.01')
-     v.infer(10)
-     assert .1 > abs( v.sample('(y_x 0)') )
-     assert .1 > abs(1 - v.sample('(y_x 10)') )
-     assert .1 > abs(-1 - v.sample('(y_x -10)') )
-     v.clear()
-     v.execute_program(x_model_crp+logistic_model)
-     [v.predict('(list (x %i) (y %i))' % (i,i) ) for i in range(10) ]
-     
-     v.clear()
-     v.execute_program(x_model_t+logistic_model)
-     v.observe('w0','0'); v.observe('w1','1')
-     v.observe('log_mu',0); v.observe('log_sig','.33')
-     v.observe('noise','.01')
-     v.infer(10)
-     assert .2 > abs( v.sample('(y_x 0)'))
-     assert .2 > abs(.9 - v.sample('(y_x 1)'))
-     
-     v.clear()
-     v.execute_program(x_model_t+logistic_model)
-     xys = [(0,0)]*3 + [(1,.9)]*3 + [(-1,-.9)]*3 + [(2,.995)]*3 + [(-2,-.995)]*3
-     # fit by w0=0,w1=1,log_mu=0,log_sig=1/3
-     observe_infer([v],xys,500,with_index=True,withn=True)
-     plot_cond(v) # should recover -1,1 sigmoid
-     # FIXME: inference is poor and fails asserts
-     # assert .2 > abs( 1 - v.sample('(y_x 15)') )
-     # assert .2 > abs( -1 - v.sample('(y_x -15)') )
-     # assert .2 > abs( v.sample('(y_x 0)') )
-     
+def mk_piecewise(weight=.5,quad=True):
+    s='''
+    [assume myceil (lambda (x) (if (= x 0) 1
+                                 (if (< 0 x)
+                                   (if (< x 1) 1 (+ 1 (myceil (- x 1) ) ) )
+                                   (* -1 (myceil (* -1 x) ) ) ) ) ) ]
+    [assume w0 (mem (lambda (p)(normal 0 3))) ]
+    [assume w1 (mem (lambda (p)(normal 0 3))) ]
+    [assume w2 (mem (lambda (p)(normal 0 1))) ]
+    [assume noise (mem (lambda (p) (gamma 2 1) )) ]
+    [assume width <<width>>]
+    [assume p (lambda (x) (myceil (/ x width)))]
+
+    [assume f (lambda (x)
+                 ( (lambda (p) (+ (w0 p) (* (w1 p) x) (* (w2 p) (* x x)))  ) 
+                   (p x)  ) ) ]
+
+    [assume noise_p (lambda (fx x) (normal fx (noise (p x))) )] 
+
+    [assume y_x (lambda (x) (noise_p (f x) x) ) ]
+
+    [assume y (mem (lambda (i) (y_x (x i))  ))] 
+
+    [assume n (gamma 1 1) ]
+    [assume model_name (quote piecewise)]
+    '''
+    if not(quad):
+        s= s.replace('[assume w2 (mem (lambda (p)(normal 0 1))) ]',
+                     '[assume w2 0]')
+    return s.replace('<<width>>',str(weight))
+
+def test_piecewise():
+    def mk_piecewise(weight,quad):
+        v=mk_c()
+        v.execute_program(x_model_t + mk_piecewise(weight,quad))
+        return v
+    v=mk_piecewise(.2,True)
+    xys=[ (.1*i,.1*i) for i in range(-6,6) ] * 6
+    no_trans=6000
+    observe_infer([v],xys,no_trans,with_index=True,withn=True)
+    a,b,c = v.sample('(list (f -.3) (f .05) (f .3))')
+    assert a<b<c
+    fig,xr,y_x = plot_cond(v)
+    ax = fig.axes[0]
+    ax.set_ylim(-1,1); ax.set_xlim(-1,1)
+
+    v=mk_piecewise(.5,False)
+    xys=[ (x,abs(x)) for x in np.linspace(-1,1,20)]
+    xys.extend( [ (x,-0.5*x) for x in np.linspace(1.1,2,20) ] )
+    no_trans=6000
+    observe_infer([v],xys,no_trans,with_index=True,withn=True)
+    a,b,c = v.sample('(list (f -.3) (f .05) (f .5))')
+    print a,b,c
+    fig,xr,y_x = plot_cond(v)
+    ax = fig.axes[0]
+    ax.set_ylim(-2.5,2,5); ax.set_xlim(-2,2.8)
+
 
 def generate_data(n,xparams=None,yparams=None,sin=True):
     'loc,scale = xparams, w0,w1,w2,omega,theta = yparams'
@@ -206,8 +224,9 @@ def plot_cond(ripl,no_reps=50,set_xr=None,plot=True):
     f_xr = [ripl.sample('(f %f)' % x) for x in xr]
     
     # gaussian noise 1sd
+    h_noise = ['pivot','piecewise']
     model_name=get_name(ripl)
-    noise=ripl.sample('(noise 0)') if model_name=='pivot' else ripl.sample('noise')
+    noise=ripl.sample('(noise 0)') if model_name in h_noise else ripl.sample('noise')
     f_a = [fx+noise for fx in f_xr]
     f_b = [fx-noise for fx in f_xr]
 
@@ -223,6 +242,8 @@ def plot_cond(ripl,no_reps=50,set_xr=None,plot=True):
         [ ax[1].scatter(xr,[y[i] for y in y_x],s=5,c='gray') for i in range(no_reps) ]
         ax[1].set_title('Single ripl: P(y/X=x,params fixed) for uniform x-range (name= %s)' % model_name)
         fig.tight_layout()
+
+        return fig,xr,y_x
     return xr,y_x
 
 
@@ -336,7 +357,7 @@ def plot_posterior_joint(mr,no_reps=500,plot=True):
     return xys
 
 
-def test_ppj():
+def test_plot_posterior_joint():
     xys = generate_data(14,xparams=[0,1],yparams=[0,0,1,0,0],sin=False) # y=x^2
     v_piv = MRipl(10,lite=lite,verbose=False);
     v_piv.execute_program(x_model_t+pivot_model)
@@ -396,7 +417,8 @@ def test_plot_posterior_conditional_noisy_y():
         v.infer(200)
     xr =np.linspace(-6,6,30)
     v_out=[plot_posterior_conditional(v,no_reps=40,set_xr=xr) for v in vs]
- 
+
+
 def test_plot_posterior_conditional_noisy_x():
     '''When observations of x are noisy, we use our prior on x and assume
     that y's came from something closer to prior. Far off xy observations
@@ -413,7 +435,7 @@ def test_plot_posterior_conditional_noisy_x():
         s2='[observe (y %i) %f]' %(ind,y)
         return s1+s2
 
-    ## FIXME, would like to add data to plot
+    ## FIXME,add observed data to plot
     for v in vs:
         v.execute_program(noise_obs(0,0,0,.1) + noise_obs(1,2,2,.1) +
                           noise_obs(2,-2,-2,1) + noise_obs(3,-4,-4,1))
