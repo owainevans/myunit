@@ -296,7 +296,7 @@ def params_compare(mr,exp_pair,xys,no_transitions,plot=False):
 
 
 def plot_posterior_conditional(mr,no_reps=50,set_xr=None,plot=True):    
-    if set_xr:
+    if set_xr!=None:
         xr = set_xr
     else:
         # find x-range from min/max of observed points
@@ -312,7 +312,7 @@ def plot_posterior_conditional(mr,no_reps=50,set_xr=None,plot=True):
         y_x = [  if_lst_flatten( [mr.sample('(y_x %f)' % x) for r in range(no_reps)] ) for x in xr]
           
         fig,ax = plt.subplots(figsize=(10,5),sharex=True,sharey=True)
-        if set_xr: ax.scatter(xs,ys,c='m')
+        if set_xr==None: ax.scatter(xs,ys,c='m')
     
         [ ax.scatter(xr,[y[i] for y in y_x],s=6,c='gray') for i in range(no_reps) ]
         ax.set_title('Mripl: P(y/X=x) for uniform x-range (name= %s)' % get_name(mr))
@@ -379,7 +379,57 @@ def test_plot_posterior_conditional():
             if abs(x)<.1: fil.append(y_x[i])
         print fil
         assert .1 > np.mean(fil)    
+
+def test_plot_posterior_conditional_noisy_y():
+    '''When observations of y are noisy, P(y/X=x) will have entropy that 
+    depends on the noise for nearby observations'''
+    v_piv = MRipl(10,lite=lite,verbose=False);
+    v_fo = MRipl(10,lite=lite,verbose=False)
+    v_piv.execute_program(x_model_t+pivot_model)
+    v_fo.execute_program(x_model_t+quad_fourier_model)
+    vs = [v_piv,v_fo]
+    def noise_obs(x,y,e):
+        return '[observe (normal (y_x %f) %f) %f]' %(x,e,y)
+    for v in vs:
+        v.execute_program(noise_obs(0,0,.1) + noise_obs(2,2,.1) +
+                          noise_obs(-2,-2,1) + noise_obs(-4,-4,1))
+        v.infer(200)
+    xr =np.linspace(-6,6,30)
+    v_out=[plot_posterior_conditional(v,no_reps=40,set_xr=xr) for v in vs]
  
+def test_plot_posterior_conditional_noisy_x():
+    '''When observations of x are noisy, we use our prior on x and assume
+    that y's came from something closer to prior. Far off xy observations
+    will be informative for nearby predictions'''
+    def mk_mrs():
+        v_piv = MRipl(10,lite=lite,verbose=False);
+        v_fo = MRipl(10,lite=lite,verbose=False)
+        v_piv.execute_program(x_model_t+pivot_model)
+        v_fo.execute_program(x_model_t+quad_fourier_model)
+        return [v_piv,v_fo]
+    vs = mk_mrs()
+    def noise_obs(ind,x,y,e):
+        s1= '[observe (normal (x %i) %f) %f]' %(ind,e,x)
+        s2='[observe (y %i) %f]' %(ind,y)
+        return s1+s2
+
+    ## FIXME, would like to add data to plot
+    for v in vs:
+        v.execute_program(noise_obs(0,0,0,.1) + noise_obs(1,2,2,.1) +
+                          noise_obs(2,-2,-2,1) + noise_obs(3,-4,-4,1))
+        v.infer(200)
+    xr =np.linspace(-6,6,30)
+    v_out=[plot_posterior_conditional(v,no_reps=30,set_xr=xr) for v in vs]
+
+
+    vs=mk_mrs()
+    for v in vs:
+        v.execute_program(noise_obs(0,14,14,3) + noise_obs(1,2,2,3) +
+                          noise_obs(2,-2,-2,3) + noise_obs(3,-14,-14,3))
+        v.infer(200)
+    xr =np.linspace(-20,20,30)
+    v_out=[plot_posterior_conditional(v,no_reps=30,set_xr=xr) for v in vs]    
+    
     
 def if_lst_flatten(l):
     if type(l[0])==list: return [el for subl in l for el in subl]
