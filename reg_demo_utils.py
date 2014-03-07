@@ -123,14 +123,20 @@ def mk_piecewise(weight=.5,quad=True):
                      '[assume w2 0]')
     return s.replace('<<width>>',str(weight))
 
+def v_mk_piecewise(weight,quad):
+    v=mk_l()
+    v.execute_program(x_model_t + mk_piecewise(weight=weight,quad=quad))
+    return v
+
 def test_piecewise():
-    def mk_piecewise(weight,quad):
+    ##FIXME try with lite
+    def v_mk_piecewise(weight,quad):
         v=mk_c()
-        v.execute_program(x_model_t + mk_piecewise(weight,quad))
+        v.execute_program(x_model_t + mk_piecewise(weight=weight,quad=quad))
         return v
-    v=mk_piecewise(.2,True)
+    v=v_mk_piecewise(.2,True)
     xys=[ (.1*i,.1*i) for i in range(-6,6) ] * 6
-    no_trans=6000
+    no_trans=1000
     observe_infer([v],xys,no_trans,with_index=True,withn=True)
     a,b,c = v.sample('(list (f -.3) (f .05) (f .3))')
     assert a<b<c
@@ -138,10 +144,10 @@ def test_piecewise():
     ax = fig.axes[0]
     ax.set_ylim(-1,1); ax.set_xlim(-1,1)
 
-    v=mk_piecewise(.5,False)
+    v=v_mk_piecewise(.5,False)
     xys=[ (x,abs(x)) for x in np.linspace(-1,1,20)]
     xys.extend( [ (x,-0.5*x) for x in np.linspace(1.1,2,20) ] )
-    no_trans=6000
+    no_trans=1000
     observe_infer([v],xys,no_trans,with_index=True,withn=True)
     a,b,c = v.sample('(list (f -.3) (f .05) (f .5))')
     print a,b,c
