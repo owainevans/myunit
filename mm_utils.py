@@ -66,6 +66,7 @@ def test_crp():
     #assert .1 > abs( np.mean( if_lst_flatten(xys)) )
     no_xs = 30
     xys = np.random.normal(0,.01,size=(no_xs,2) )
+    xys = np.random.normal(5,1,size=(no_xs,2) )
     print xys
     vinf=mk_c(); vinf.execute_program(inf_crp_model)
     vzeros=mk_c(); vzeros.execute_program(zeros_crp_model)
@@ -77,18 +78,21 @@ def test_crp():
         [v.observe('(x %i 0)'%i,'%f'%x0) for v in vs]
         [v.observe('(x %i 1)'%i,'%f'%x1) for v in vs]
         #v.observe('(z %i)'%i,'%i'%0)
-
-    [v.infer(5000) for v in vs]    
+    print [di for di in vinf.list_directives() if di['instruction']=='observe']
+    [v.infer(10**4) for v in vs]    
     loops=3; mus=[[]]*loops; sigs=[[]]*loops
     for i,v in enumerate(vs):
+        print 'i',i
         for r in range(loops):
+            print 'in loop',i,'\n'
             v.infer(2500)
-            zvals = np.unique([ v.sample('(z %i)' %i) for i in range(no_xs)] )
+            zvals = np.unique([ v.sample('(z %i)' %ind) for ind in range(no_xs)] )
             print zvals
             mus[r]=[ (z,v.sample('(list (mu %i 0) (mu %i 1))'%(z,z)) ) for z in zvals]
             sigs[r]=[(z,v.sample('(list (sigma %i 0) (sigma %i 1))'%(z,z) )) for z in zvals]
-        s= 'vinf' if i==0 else 'vzeros'
-        print s, '-- mus:',mus, '\n sig:',sigs
+        if i==0: print 'vinf'
+        if i==1: print 'vzeros'
+        print '-- mus:',mus, '\n sig:',sigs
     
 
 
