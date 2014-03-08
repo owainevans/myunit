@@ -229,7 +229,8 @@ def plot_cond(ripl,no_reps=20,return_fig=False,set_xr=None,plot=True):
     if set_xr!=None:
         xr=set_xr; n=0
     else: # find x-range from min/max of observed points
-        n = int( np.round( ripl.sample('n') ) )  #FIXME
+        try: n = int( np.round( ripl.sample('n') ) )  #FIXME
+        except: n=0
         if n==0:
             xr= np.linspace(-3,3,50);
         else:
