@@ -343,7 +343,7 @@ def params_compare(mr,exp_pair,xys,no_transitions,plot=False):
     for i,vals in enumerate(vals_list):
         ax[i,0].scatter( vals[exp_pair[0]], vals[exp_pair[1]], s=6)
         ax[i,0].set_title('%s vs. %s (name=%s)' % (exp_pair[0],
-                                                   exp_pair[1]),name)
+                                                   exp_pair[1],name) )
         ax[i,0].set_xlabel(exp_pair[0]); ax[i,0].set_ylabel(exp_pair[1])
         if i>0:
             ax[i,1].scatter(xs[1:i], ys[1:i], c='blue') ## FIXME start from 1 to ignore prior
