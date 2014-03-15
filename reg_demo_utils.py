@@ -25,7 +25,7 @@ pivot_model='''
 [assume w2 (mem (lambda (p)(normal 0 1))) ]
 [assume noise (mem (lambda (p) (gamma 2 1) )) ]
 [assume pivot (normal 0 5)]
-[assume p (lambda (x) (if (< x pivot) 0 1) ) ]
+[assume p (lambda (x) (if (< x pivot) false true) ) ]
 
 [assume f (lambda (x)
              ( (lambda (p) (+ (w0 p) (* (w1 p) x) (* (w2 p) (* x x)))  ) 
@@ -41,12 +41,39 @@ pivot_model='''
 [assume model_name (quote pivot)]
 '''
 
+pivot_model_simple='''
+[assume w0 (mem (lambda (p) (normal 0 3) ) ) ]
+[assume w1 (mem (lambda (p) (normal 0 3))) ]
+[assume w2 (mem (lambda (p) (normal 0 1))) ]
+[assume noise (gamma 5 1)]
+[assume pivot (normal 0 5)]
+[assume p (lambda (x) (if (< x pivot) false true) ) ]
+
+[assume f (lambda (x w0 w1 w2) (+ w0 (* w1 x) (* w2 (* x x) ) ) ) ]
+
+[assume y_x (lambda (x) 
+                ( (lambda (p) (normal  (f x (w0 p) (w1 p) (w2 p)) noise ) )
+                     (p x) ) ) ]
+
+[assume y (mem (lambda (i) (y_x (x i))  ))] 
+
+[assume y2 (mem (lambda (i) 
+                ( (lambda (x p)
+                    (noise_p  (f x (w0 p) (w1 p) (w2 p)) p ) )
+                     (x i) (p (x i)) 
+                     ) ) ) ]
+[assume n (gamma 1 1) ]
+[assume name (quote simple_pivot)]'''
+
+
+
 quad_fourier_model='''
 [assume w0 (normal 0 3) ]
 [assume w1 (normal 0 3) ]
 [assume w2 (normal 0 1) ]
 [assume omega (normal 0 3) ]
 [assume theta (normal 0 3) ]
+
 [assume noise (gamma 2 1) ]
 
 [assume model (if (flip) 1 0) ]
@@ -76,6 +103,12 @@ logistic_model='''
 [assume model_name (quote logistic)]'''
 
 
+x_model_t_piece='''
+[assume nu (gamma 10 1)]
+[assume x_d (lambda () (student_t nu) ) ]
+[assume x_ind (mem (lambda (i) (x_d) ) )]
+'''
+
 def mk_piecewise(weight=.5,quad=True):
     s='''
     [assume myceil (lambda (x) (if (= x 0) 1
@@ -85,23 +118,27 @@ def mk_piecewise(weight=.5,quad=True):
     [assume w0 (mem (lambda (p)(normal 0 3))) ]
     [assume w1 (mem (lambda (p)(normal 0 3))) ]
     [assume w2 (mem (lambda (p)(normal 0 1))) ]
-    [assume noise (mem (lambda (p) (gamma 2 1) )) ]
+    [assume noise (mem (lambda (p) (gamma 5 1) )) ]
     [assume width <<width>>]
-    [assume p (lambda (x) (myceil (/ x width)))]
-
+    
+    [assume p_func (lambda (x) (1) )]
     [assume f (lambda (x)
                  ( (lambda (p) (+ (w0 p) (* (w1 p) x) (* (w2 p) (* x x)))  ) 
-                   (p x)  ) ) ]
+                   (p_func x)  ) ) ]
 
-    [assume noise_p (lambda (fx x) (normal fx (noise (p x))) )] 
+    [assume noise_p (lambda (x) 
+                         (lambda (fx) (normal fx (noise (p_func x)) ) ) 
+                            ) ]
 
-    [assume y_x (lambda (x) (noise_p (f x) x) ) ]
+  
+    [assume y_x (lambda (x) ( (noise_p x) (f x) ) ) ]
 
-    [assume y (mem (lambda (i) (y_x (x i))  ))] 
+    [assume y (mem (lambda (i) (y_x (x_ind i))  ))] 
 
     [assume n (gamma 1 100) ]
     [assume model_name (quote piecewise)]
     '''
+#    [assume p (lambda (x) (myceil (/ x width)))]
     if not(quad):
         s= s.replace('[assume w2 (mem (lambda (p)(normal 0 1))) ]',
                      '[assume w2 0]')
@@ -109,35 +146,8 @@ def mk_piecewise(weight=.5,quad=True):
 
 def v_mk_piecewise(weight,quad):
     v=mk_l()
-    v.execute_program(x_model_t + mk_piecewise(weight=weight,quad=quad))
+    v.execute_program(x_model_t_piece + mk_piecewise(weight=weight,quad=quad))
     return v
-
-def test_piecewise():
-    ##FIXME try with lite
-    def v_mk_piecewise(weight,quad):
-        v=mk_c()
-        v.execute_program(x_model_t + mk_piecewise(weight=weight,quad=quad))
-        return v
-    v=v_mk_piecewise(.2,True)
-    xys=[ (.1*i,.1*i) for i in range(-6,6) ] * 6
-    no_trans=1000
-    observe_infer([v],xys,no_trans,with_index=True,withn=True)
-    a,b,c = v.sample('(list (f -.3) (f .05) (f .3))')
-    assert a<b<c
-    fig,xr,y_x = plot_cond(v)
-    ax = fig.axes[0]
-    ax.set_ylim(-1,1); ax.set_xlim(-1,1)
-
-    v=v_mk_piecewise(.5,False)
-    xys=[ (x,abs(x)) for x in np.linspace(-1,1,20)]
-    xys.extend( [ (x,-0.5*x) for x in np.linspace(1.1,2,20) ] )
-    no_trans=1000
-    observe_infer([v],xys,no_trans,with_index=True,withn=True)
-    a,b,c = v.sample('(list (f -.3) (f .05) (f .5))')
-    print a,b,c
-    fig,xr,y_x = plot_cond(v)
-    ax = fig.axes[0]
-    ax.set_ylim(-2.5,2,5); ax.set_xlim(-2,2.8)
 
 
 from scipy.stats import kde
@@ -183,7 +193,7 @@ def generate_data(n,xparams=None,yparams=None,sin_quad=True):
     return xys
 
 
-def observe_infer(vs,xys,no_transitions,with_index=True,withn=True):
+def observe_infer(vs,xys,no_transitions,with_index=False,withn=False):
     '''Input is list of ripls or mripls, xy pairs and no_transitions. Optionally
     observe the n variable to be the len(xys). We can either index the observations
     or we can treat them as drawn from x_d and y_x, which do not memoize but depend
