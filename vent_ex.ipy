@@ -1,24 +1,27 @@
 import numpy as np
 import matplotlib.pylab as plt
-ip = get_ipython()
-v=ipy_ripl
+from venture.venturemagics.ip_parallel import *
+from reg_demo_utils import *
+lite = 1  # 0 puma, 1 lite
+v=mk_l() if lite else mk_c()
 d={}
 
 
-def as_sort(d):
-    as_items = [item for item in d.items() if item[0].startswith('as')]
+def sorter(di,d):
+    if di=='as':
+        st='as'
+    else:
+        st='pr'
+    as_items = [item for item in d.items() if item[0].startswith(st)]
     return sorted(as_items,key=lambda pair: int(pair[0][2]),)
 
-def pr_sort(d):
-    pr_items = [item for item in d.items() if item[0].startswith('pr')]
-    return sorted(pr_items,key=lambda pair: int(pair[0][2]),)
 
-def run_as():
-    [run(item[1]) for item in as_sort(d) ]
-
-def run_pr():
-    [run(item[1]) for item in pr_sort(d)]
-
+def run_dis(di,verbose=False):
+    for item in sorter(di,d):
+        if verbose: print item
+        run(item[1])
+        if verbose: print '----'
+    
 def run(prog,mag=0):
     if mag: 
         ip = get_ipython()
@@ -40,11 +43,13 @@ def testPredicts():
         if di['instruction']=='predict' and di['value']==False: print di
 
 
-d['as1']=''' 
+d['as1']='''
 [assume zeros (lambda (n) (if (= n 0) (list) (pair 0 (zeros (minus n 1)))))]
-[assume ones (lambda (n) (if (= n 0) (list) (pair 1 (ones (minus n 1)))))]         [assume is_nil (lambda (lst) (not (is_pair lst) ) ) ]
-[assume nil (list)]
-'''
+[assume ones (lambda (n) (if (= n 0) (list) (pair 1 (ones (minus n 1)))))]         [assume is_nil (lambda (lst) (= lst nil) ) ]
+[assume map_list (lambda (f lst) (if (is_nil lst) nil 
+                                  (pair (f (first lst)) (map_list (rest lst))) ) ) ]  '''
+#[assume nil (list)]
+#'''
 d['pr1']='''
 [predict (zeros (quote 5) ) ]
 [predict (is_nil nil) ]
@@ -54,7 +59,6 @@ d['pr1']='''
 # [predict (zeros (list 1) ) ]
 
 d['as2']='''
-[assume second (lambda (lst) (first (rest lst) ) ) ]
 [assume repeat (lambda (th n) (if (= n 0) (list) (pair (th) (repeat th (- n 1) ) ) ) ) ]
 [assume and (lambda (a b) (if a (if b true false) false) ) ]
 [assume or (lambda (a b) (if a true (if b true false) ) ) ]
@@ -148,7 +152,7 @@ d['pr6']='''
 [predict (ar_ls (array 1) 0)]
 [predict (ar_ls (array 1) 1)]
 [predict (ls_eq  (ar_ls_l (ar_ze 5) 2 4) (list 0 0) ) ]
-[predict (not (ls_eq (ar_ls (array nil nil) 2) (list nil nil) ) )]
+[predict (ls_eq (ar_ls (array nil nil) 2) (list nil nil) )]
 [predict (lookup (map_ar_ls (lambda (x) true) (array 0 1) 2) 0)]
 '''
 def mk_ar_zeros(n):
@@ -238,7 +242,115 @@ d['pr9']='''
 
 ###############
 
-run_as()
+alpha_topic_word = '50' # high concentration, so each topic a uniform dist
+no_topics = 5
+size_vocab = 20
+def mk_lda(clda=True,alpha_topic='(gamma 1 1)',no_topics=5,size_vocab=20):
+    lda='''
+    [assume topics %i]
+    [assume vocab %i]
+    [assume alpha_doc_topic (gamma 1 1) ]
+    [assume alpha_topic_word %s ]
+
+    [assume doc (mem (lambda (doc_ind) (make_sym_dir_mult alpha_doc_topic topics) ) )]
+
+    [assume topic (mem (lambda (topic_ind) (make_sym_dir_mult alpha_topic_word vocab) ) )]
+
+    [assume word (mem (lambda (doc_ind word_ind) ( (topic ((doc doc_ind)) ) )  ) ) ]
+    ''' % (no_topics,size_vocab,alpha_topic)
+
+
+    ulda='''
+    [assume topics %i]
+    [assume vocab %i]
+    [assume alpha_doc_topic (gamma 1 1) ]
+    [assume alpha_topic_word %s ]
+    [assume doc (mem (lambda (doc_ind) (symmetric_dirichlet alpha_doc_topic topics)))]
+    [assume topic (mem (lambda (topic_ind) (symmetric_dirichlet alpha_topic_word vocab) ) )]
+    [assume z (mem (lambda (doc_ind word_ind) (categorical (doc doc_ind)) ) ) ]
+    [assume word (mem (lambda (doc_ind word_ind)
+      (categorical (topic (z doc_ind word_ind) ) ) ) ) ] 
+    ''' % (no_topics,size_vocab,alpha_topic)
+    return lda if clda else ulda
+
+def test_lda():
+    def gen_data(lite=0,clda=1):
+        vs=[mk_c() for i in range(2)] if not(lite) else [mk_l() for i in range(2)]
+        no_topics=2;size_vocab=20; nt=no_topics; sv=size_vocab
+        vs[0].execute_program(mk_lda(clda=clda,
+                                     alpha_topic='50',no_topics=nt,size_vocab=sv))
+        vs[1].execute_program(mk_lda(clda=clda,
+                                     alpha_topic='.001',no_topics=nt,size_vocab=sv))
+        # .1 is high concentration
+        no_docs = 5; words_per_doc = 300; corpus={}
+        for i,v in enumerate(vs):
+            corpus[i]=[]
+            for doc in range(no_docs):
+                p=[v.predict('(word %i %i)' % (doc,ind) ) for ind in range(words_per_doc)]
+                corpus[i].append(p)
+        assert all(1>np.abs( (np.mean(corpus[0],axis=1) - np.mean(range(20))))) 
+        assert sum(np.std(corpus[1],axis=1)) < sum(np.std(corpus[0],axis=1))
+        
+
+        if not(clda):
+            uni = vs[0].sample('(topic 0)') 
+            concen = vs[1].sample('(topic 0)')
+            
+            assert all(.1 > np.abs( uni - 1./size_vocab) )
+             
+            print [v.sample('(topic 0)') for v in vs]
+            print [v.sample('(doc 0)') for v in vs]
+    
+    gen_data(lite=0,clda=1)
+    gen_data(lite=1,clda=0)
+    gen_data(lite=0,clda=0)
+
+                                    
+
+    ## INFERENCE
+    def lda_inf():
+        no_topics=2;size_vocab=10; nt=no_topics; sv=size_vocab
+        vs=[mk_c() for i in range(2)]
+        vs[0].execute_program(mk_lda(alpha_topic='(gamma 1 1)',
+                                     no_topics=nt,size_vocab=sv))
+        vs[1].execute_program(mk_lda(alpha_topic='(gamma 1 1)',
+                                     no_topics=nt,size_vocab=sv))
+
+        topics = [ [.5]*2 + [0.001]*8, [0.001]*8 + [.5]*2 ]
+        docs = [ [0]*10 +[1]*10, [9]*10 + [8]*10, [9]*10 + [8]*10 ]
+        for v in vs:
+            for doc_ind,doc in enumerate(docs):
+                for word_ind in range(len(doc)):
+                    v.observe('(word %i %i)'%(doc_ind,word_ind),'%i'%doc[word_ind])
+        [v.infer(500) for v in vs]
+        print [v.predict('alpha_topic_word') for v in vs]
+        print [v.predict('alpha_doc_topic') for v in vs]
+
+        doc0_new = []; topic_gen=[]
+        for v in vs:
+            d_new= [v.predict('(word 0 %i)'%i) for i in range(20,30)]
+            d_probs = np.histogram(d_new,bins=range(size_vocab),density=True)
+            doc0_new.append( {'hashv':hash(v),
+                              'doc0_draws':d_new, 'doc0_probs':d_probs} )
+
+            topic_gen.append({'hashv':hash(v)})
+            for topic_ind in range(no_topics):
+                t_new = [v.predict('( (topic %i) )'%topic_ind) for i in range(30) ]
+                t_probs = np.histogram(t_new,bins=range(size_vocab),density=True)
+                topic_gen[-1].update({'topic%i_draws'%topic_ind :t_new,
+                                      'topic%i__probs'%topic_ind :t_probs} )
+        #print 'doc0 data:',docs[0],'doc0_new: ', doc0_new
+        #print 'topic0 data:',topics[0],'topics0_new: ', topic0
+
+        new_docs=[]
+        for v in vs:
+            new_docs.append( [v.predict('(word 3 %i)'%i) for i in range(30)] )    
+        #print new_docs
+    return None
+
+    
+
+
 
 dp='''
 [assume alpha .99]
@@ -262,15 +374,15 @@ pr_dp='''
 [predict (> 1 (mean (repeat dp_norm 50)) ) ]
 [predict (> 1 (mean (repeat dp_norm 50)) ) ]
 '''
-out12 = run(dp)
+#out12 = run(dp)
 
 gsym='''
-[assume gsym (lambda () (uniform_discrete 0 (power 10 6) ) ) ]
+[assume gsym (lambda () (uniform_discrete 0 (pow 10 6) ) ) ]
 [assume g (repeat gsym 100) ]
 [predict (= -1 (index_s g (first g) 1) ) ]
 [predict (= -1 (index_s g (second g) 2) ) ]
 '''
-out13=run(gsym)
+#out13=run(gsym)
 
 irm='''
 [assume classdist (dpmem gsym .95)]
@@ -342,23 +454,24 @@ cross_cat='''
 
 
 '''
-out14=run(irm_sym)
-n=20
-graph = [ [] ] * n
-for i in range(n):
-    graph[i]= [v.predict('(talks %s %s)' % (str(i),str(j)) ) for j in range(n) ]
+def irm():
+    out14=run(irm_sym)
+    n=20
+    graph = [ [] ] * n
+    for i in range(n):
+        graph[i]= [v.predict('(talks %s %s)' % (str(i),str(j)) ) for j in range(n) ]
 
-g = np.array(graph)
-g = g.astype(int)
-def find_class(i): return v.sample( '(obj_class %s)' % str(i) )
-h=g.tolist()
-keys = [find_class(i) for i in range(len(h)) ]
-h_key = zip(h,keys)
-h_sor = sorted(h_key,key=lambda row_key: row_key[1])
-h_sor_nokey = np.array( [row_key[0] for row_key in h_sor] )
-assert np.sum(np.array(h_sor_nokey)) == np.sum(g)
-fig,ax = plt.subplots(2,1)
-ax[0].imshow(g); ax[1].imshow(h_sor_nokey)
+    g = np.array(graph)
+    g = g.astype(int)
+    def find_class(i): return v.sample( '(obj_class %s)' % str(i) )
+    h=g.tolist()
+    keys = [find_class(i) for i in range(len(h)) ]
+    h_key = zip(h,keys)
+    h_sor = sorted(h_key,key=lambda row_key: row_key[1])
+    h_sor_nokey = np.array( [row_key[0] for row_key in h_sor] )
+    assert np.sum(np.array(h_sor_nokey)) == np.sum(g)
+    fig,ax = plt.subplots(2,1)
+    ax[0].imshow(g); ax[1].imshow(h_sor_nokey)
 
 
 

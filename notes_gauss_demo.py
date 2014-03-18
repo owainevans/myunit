@@ -113,3 +113,88 @@ so one way is just with mr_map, but with plots collected by getting data back
 plot(mr_map_f)
 
 vs. snapshot(predictive(exp))
+
+
+
+
+
+
+####
+notes on what we need for cambridge:
+
+schedule: i'm leaving AM wednesday. have thu-sunday to work on this full-time. will be 3.5 hrs travel away from cam. could arrive whenever. 
+
+systems: yura, dlovell, alexey? terminal and os x install.
+
+
+venture wishlist:
+1. exceptions (also want to avoid whatever kills engines)
+2. let, quote syntactic sugar
+lite needs to have poisson, thing with flip. map_list
+3. poisson, mvn and wishart
+4. map,list2array, list2dict, apply
+5. standard library on master:
+    repeat, length(list), append, fold, reverse
+    sum(lst/array), prod(lst/array)
+
+6. v.observe('(list (x) (y))','(list 1 2)')
+ 
+
+multiripl:
+
+concrete short-term things:
+ability to swith from lite to puma (having to redo inference). lite is the reference implementation. puma
+
+1. check again for lack of interactive graphics in matplotlib
+2. for topic models and IRM, we'll want visualization of discrete variables. examples: number of clusters for IRM, number of topics for topic models. need general facility for 1D and 2D discrete variables. also: what about plotting simplex points? and the 2d plot for cluster membership we had in matlab. 
+3. sample_populations: we can always take a thunk and do mr_map('(repeat n thunk)', limit=some_limit). for 1D cts variable we can then plot on same axis, but in general we can just produce a set of plots. so we need to modify this, with an important special case for discrete and cts 1D variables that can be put on the same plot.
+4. plot_old_vals: similarly, we need to consider the more general case where you can just plot in subplot side-by-side with a shared x and y and good labeling. 
+  titles and legend cannot always easily be added later: you might have lots of plots and not be easily able to keep track of which is which. (and the mripl plot function might want to alter order somehow). this makes modularity trickier. in terms of look of plots, there seems to be some way of fixing general settings, coz seaborn did that. 
+5. can you get plot to do individual plots and then subplot the figs you get back? otherwise, we'd have to use plot to do the whole subplot. maybe that's ok, if we can customize the plot with a special title etc. before it comes back, but this may be a problem (maybe plot gets to plot it inline?). 
+
+6. saving files, saving ripls?
+
+
+longer-term issues:
+
+--can it be refactored somehow to abstract all the shared structure? maybe some kind of inheritance from a normal ripl?
+
+--add something for easily loading parametrically varying models over a set of ripls (either an mripl, set of mripls, or set of single ripls). want to be able to keep track of what the starting params were.
+
+--one would like to be able to map a set of observes over a set of ripls/set of mripls. [note the importance here of the identical methods syntax for ripls and mripls]. a general way for this to work is that you have a thunk '(draw sample)', which is always generating exchangeable data. then you can say:
+
+asssume draw_data (lambda () (let ( [x (x_d)]] ) (list x (y_x x))))
+batch_observe(vs,data):
+    [v.observe('(draw_data)','%s' % str(datum)) for datum in data]
+
+but note that this requires us to always use thunk for generating data.
+this seems reasonable for most of the modeling we might do, and the 
+tutorials could be build around this assumption. we could have an 
+optional argument where you specify the two arguments to observe.
+
+
+--we want to do bulk infer, with arbtirary inference specificiation
+
+--other standard features: show changing posterior as data comes in, show changing state of chain as no_samples goes up (probes). these are things that can only apply to an mripl (where you have immediate access to a snapshot of the posterior). if we apply this across multiple models, then we are doing a kind of hybrid thing (our meta-model is weird python-venture mix and we don't do inference in it, we just visualize it). 
+
+distinguish: snapshot is something that doesn't make sense for model comparison. we want to snapshot only for an mripl. 
+function like observe_infer, which maps the same observe/infer operation across all models. (the plotting tools we have, e.g. plot_conditional, work in the same way).
+
+function like: compare_logscore. we take the mean logscores of models and compare them. we could also select the best scoring ripl for each model and compare the likelihood each ripl gives to the data. or compare the KL-divergence between this ripl and the data. these involve computing on each model and then computing some statistics of the output from each model. 
+   --can have a more general mr_map_vs(vs,f,store,limit), which takes set of ripls or mripls, and either does mr_map, or just applies f to a single ripl. 
+
+
+
+
+
+
+
+gen model for dangerous equation:
+
+as student_score mem la i (sum (student_default i) (school_size (school i)))))
+observe (mean stud_score_1 stud_score_2 ...) 45)
+
+or:
+assume school_score(i) sum(students 3 4 5)
+assume school_size(i) ?round a log_normal
+then want to look at the correlation between 
