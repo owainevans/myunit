@@ -127,11 +127,43 @@ schedule: i'm leaving AM wednesday. have thu-sunday to work on this full-time. w
 systems: yura, dlovell, alexey? terminal and os x install.
 
 
+lite vs. puma:
+1. lite lacks 'nil' for '(list)'
+2. lite bernoulli outputs bool and puma outputs int. both should output int (as flip already outputs bool). 
+3. give lite and puma ripls doc_strings so you can find out straightforwardly what kind of ripl you have
+4. lite 'if' can't take numbers or lists. puma 'if' can take numbers (and '0' is false) but can't take lists. should be consistent. 
+    lite 'or/and/not' can't take numbers but puma can. (my sense is both should take numbers). 
+5. lite 'size' outputs python int, puma outputs float.
+6. lite outputs 'venture.lite.valueSPRef' for sp, puma 'unknown'.
+7. lite outputs a numpy array for (dirichlet (array 1 1)), puma 
+8. (is_atom (binomial 10 .5)) is false for lite, true for puma (but categorical and crp do have values that are atoms in lite).
+9. lite exceptions are very long. is there helpful information there or should they just skip to the assert?
+10. puma can test arrays for equality with '=', lite can't. in neither puma nor lite can you say 'observe (array (flip)) (array true)', but in puma you can get around this by saying 'observe (= (array (flip)) (array true)) true', but not in lite.  
+11. how do variable-length arguments work for functions?
+12. FORCE doesn't work in lite (at least on a cursory look)
+
+
+
+
+notes vikash: bug in the paper re: dynamic scopes. q: general set of tools for dealing with sets of ripls. two main
+situations, mripls, with identical model, which can be used for estimating posterior and where you want to do
+snapshot and form hists. then model comparison (or backend comparison, parametric variation) where you don't wanna collapse data into one hist, but you do want to map functions across all the models to amke comparisons. 
+
+even without parallel, we'd like to create mripls for convenience of avoiding loop constructs. if we don't have to deal with mripls, we can simplify things. maybe some way of using inheritance to do this. big thing is that we couldn't copy the state of a chain before due to serialization. but if all mripls are local, it should be easier to copy them. then we can do things like take a chain we've been running and let that be the seed for a bunch of mripls. with a local mripl, it's easy to map functions across them (without worrying about namespace issues). and we can map across them and get figure objects that we can then interactively edit. 
+
+plan: make a local mripl constructor, which sets the seeds as in the remote mripl. (so we can use it for debugging). code will be very simple:
+self.assume(x,y) return [r.assume(x,y) for r in mripls]. 
+
+so the mripl is an object that just stores the ripls, the seeds for the ripls, and has a bunch of shadow methods. 
+
+convenience functions snapshot, plot_past_vals, plot_populations all go through a call to self.sample or self.predict. and so if we redefine these to work in the local_mripl case, they'll work just as well. 
+
 venture wishlist:
 1. exceptions (also want to avoid whatever kills engines)
 2. let, quote syntactic sugar
 lite needs to have poisson, thing with flip. map_list
-3. poisson, mvn and wishart
+3. poisson, mvn and wishart, student t should have mean, variance args,
+    pitman yor?, uniform_discrete for lite
 4. map,list2array, list2dict, apply
 5. standard library on master:
     repeat, length(list), append, fold, reverse
