@@ -4,7 +4,175 @@ from venture.venturemagics.ip_parallel import *;
 lite=False; 
 mk_l = make_lite_church_prime_ripl; mk_c = make_church_prime_ripl
 
+vs = test_ripls()
 
+## models to add
+# zero biased weights on coefficient
+# CRP regression
+# hierarch regression 
+# do model comparison
+# do y given x and vice versa
+
+
+simple_fourier_model='''
+[assume w0 (normal 0 3) ]
+[assume w1 (normal 0 3) ]
+[assume omega (normal 0 3) ]
+[assume theta (normal 0 3) ]
+[assume x (mem (lambda (i) (x_d) ) )]
+[assume x_d (lambda () (normal 0 5))]
+[assume noise (gamma 2 1) ]
+[assume f (lambda (x) (+ w0 (* w1 (sin (+ (* omega x) theta) ) ) ) ) ]
+[assume y_x (lambda (x) (normal (f x) noise) ) ]
+[assume y (mem (lambda (i) (y_x (x i))  ))] 
+[assume n (gamma 1 1)]
+'''
+simple_quadratic_model='''
+[assume w0 (normal 0 3) ]
+[assume w1 (normal 0 3) ]
+[assume w2 (normal 0 3) ]
+[assume x (mem (lambda (i) (x_d) ) )]
+[assume x_d (lambda () (normal 0 5))]
+[assume noise (gamma 2 1) ]
+[assume f (lambda (x) (+ w0 (* w1 x) (* w2 (* x x)) ) ) ]
+[assume y_x (lambda (x) (normal (f x) noise) ) ]
+[assume y (mem (lambda (i) (y_x (x i)) ) )]
+[assume n (gamma 1 1)]
+'''
+hi_quadratic_model='''
+[assume mu_prior (mem (lambda (j) (normal 0 20))) ]
+[assume sigma_prior (mem (lambda (j) (gamma 1 1)) ) ]
+[assume w (mem (lambda (gp j) (normal (mu_prior j) (sigma_prior j) ) ) ) ] 
+[assume x (mem (lambda (gp i) (x_d gp) ) )]
+[assume x_d (lambda (gp) (normal 0 3))]
+[assume noise (gamma 2 1) ]
+[assume f (lambda (gp x) (+ (w gp 0) (* (w gp 1) x) (* (w gp 2) (* x x)) ) ) ]
+[assume y_x (lambda (gp x) (normal (f gp x) noise) ) ]
+[assume y (mem (lambda (gp i) (y_x gp (x gp i)) ) )]
+[assume n (gamma 1 1)]
+'''
+
+
+def pred_xy(n):
+    xys=[]
+    for v in vs:
+        xys.append( [v.predict('(list (x %i %i) (y %i %i))'%(gp,ind,gp,ind)) for gp in range(2) for ind in range(n) ] )
+    return xys
+
+def pred_cond(n=30):
+    ys=[]
+    xr=np.linspace(-3,3,n)
+    for v in vs:
+        ys.append([[v.predict('(f %i %f)'%(gp,x)) for x in xr] for gp in range(2)])
+    ys=ys[0]
+    return zip(xr,ys[0]),zip(xr,ys[1])
+
+def diff_groups():
+    xy0,xy1 = pred_cond()
+    xy0=np.array(xy0); xy1=np.array(xy1);
+    return  np.abs(xy0 - xy1)
+
+def test_hi1():
+    diff1 = diff_groups()
+    # set all the priors on ws to have very low var, so all gps same
+    [v.observe('(sigma_prior %i)'%j,'.1') for v in vs for j in range(3)]
+    [v.observe('noise','.05') for v in vs]
+    [v.infer(500) for v in vs]
+    diff2 = diff_groups()
+    assert 2 > np.mean(diff2[:,1])
+    assert all(diff1[:,1] > diff2[:,1])
+
+# if two groups are the same, we should learn a small val for sig prior
+def test_hi2():
+    ## fix the ws = 1 and then should find small shared sigma
+    vs = [mk_l() for i in range(2)];
+    [v.set_seed(np.random.randint(100)) for v in vs]
+    [v.execute_program(hi_quadratic_model) for v in vs]
+    sigmas1=[v.predict('(sigma_prior %i)'%j) for v in vs for j in range(3)]
+    for gp in gps:
+        [v.observe('(w %i %i)'%(gp,i),'1') for v in vs for i in range(10)]
+    [v.infer(1000) for v in vs]
+    sigmas2=[v.predict('(sigma_prior %i)'%j) for v in vs for j in range(3)]
+    assert sigmas1>sigmas2
+
+def test_hi3():
+    ## learn same xys for each of 3 groups, so should be small shared sigma
+    vs = [mk_c() for i in range(2)];
+    [v.set_seed(np.random.randint(100)) for v in vs]
+    [v.execute_program(hi_quadratic_model) for v in vs]
+    sigmas1=[v.predict('(sigma_prior %i)'%j) for v in vs for j in range(3)]
+    N=20
+    xs=np.random.normal(0,3,N); ys = xs + np.random.normal(0,.01,N);
+    xys=zip(list(xs),list(ys)); xys=lst_flatten([xys] * 3)
+    xyg = [ [] ] * 3
+    xyg[0] = xys[:20]; xyg[1] = xys[20:40]; xyg[2]=xys[40:]
+    gps = [0,1,2]
+    for gp in gps:
+        xys = xyg[gp]
+        for i,(x,y) in enumerate(xys):
+            [v.observe('(x %i %i)' % (gp,i) , '%f' % x) for v in vs]
+            [v.observe('(y %i %i)' % (gp,i), '%f' % y ) for v in vs]
+    [v.infer(6000) for v in vs]
+    sigmas2=[v.predict('(sigma_prior %i)'%j) for v in vs for j in range(3)]
+    assert sigmas2 < sigmas1
+    return sigmas1,sigmas2
+
+def test_hi4():
+    vs = [mk_c() for i in range(2)];
+    [v.set_seed(np.random.randint(100)) for v in vs]
+    [v.execute_program(hi_quadratic_model) for v in vs]
+
+    plot_conditional_hi(vs[0],gps=6)
+    sigmas1=[v.predict('(sigma_prior %i)'%j) for v in vs for j in range(3)]
+    mus1=[v.predict('(mu_prior %i)'%j) for v in vs for j in range(3)]
+    xs = np.linspace(-3,3,8)
+    xyg=[zip(xs,list(4*i*xs)) for i in range(6) ]
+    for gp in range(6):
+        xys = xyg[gp]
+        for i,(x,y) in enumerate(xys):
+            [v.observe('(x %i %i)' % (gp,i) , '%f' % x) for v in vs]
+            [v.observe('(y %i %i)' % (gp,i), '%f' % y ) for v in vs]
+    [v.infer(3000) for v in vs]
+    sigmas2=[v.predict('(sigma_prior %i)'%j) for v in vs for j in range(3)]
+    mus2=[v.predict('(mu_prior %i)'%j) for v in vs for j in range(3)]
+    assert sigmas2[1]>sigmas1[1] and sigmas2[4]>sigmas1[4]
+    assert mus2[1]+3 > mus1[1] and mus2[4]+3 > mus2[4]
+
+    plot_conditional_hi(vs[0],gps=6)
+    return sigmas1,sigmas2,mus1,mus2
+
+vs=[mk_c() for reps in range(2)]
+[v.execute_program(hi_quadratic_model) for v in vs]
+v=vs[0]
+
+
+def plot_conditional_hi(ripl,gps,xr=(-3,3),data=[],no_reps=15,no_xs=40,return_fig=0):
+    xr = np.linspace(xr[0],xr[1],no_xs)
+    f_xr_g = [ 0 ] * gps; xys_g = [ 0 ] * gps
+    fig,ax = plt.subplots(gps,2,figsize=(9,4*gps))
+
+    for gp in range(gps):
+        f_xr=[ripl.predict('(f %i %f)' % (gp,x)) for x in xr]
+        xys=[[(x,ripl.predict('(y_x %i %f)'%(gp,x))) for r in range(no_reps)] for x in xr]
+        f_xr_g.append(f_xr); xys_g.append(xys)
+        xs=[xy[0] for xy in if_lst_flatten(xys)];
+        ys=[xy[1] for xy in if_lst_flatten(xys)]
+
+        if data: ax[gp,0].scatter(data[gp][0],data[gp][1])
+
+        ax[gp,0].plot(xr,f_xr,color='m'); #ax[0].scatter(xr,fxp,xr,fxm)
+        ax[gp,0].set_title('Ripl: f (+- 1sd) ' )
+        ax[gp,1].scatter(xs,ys,s=5)
+        ax[gp,1].set_title('Ripl: Scatter P(y/X=x,params) ' )
+    
+
+
+
+x_model_t='''
+[assume nu (gamma 10 1)]
+[assume x_d (lambda () (student_t nu) ) ]
+[assume x (mem (lambda (i) (x_d) ) )]
+'''
 x_model_crp='''
 [assume alpha (uniform_continuous .01 1)]
 [assume crp (make_crp alpha) ]
@@ -13,11 +181,6 @@ x_model_crp='''
 [assume sig (mem (lambda (z) (uniform_continuous .1 8) ) ) ]
 [assume x_d (lambda () ( (lambda (z) (normal (mu z) (sig z) )) (crp) ) ) ]
 [assume x (mem (lambda (i) (normal (mu (z i)) (sig (z i))))  ) ]
-'''
-x_model_t='''
-[assume nu (gamma 10 1)]
-[assume x_d (lambda () (student_t nu) ) ]
-[assume x (mem (lambda (i) (x_d) ) )]
 '''
 pivot_model='''
 [assume w0 (mem (lambda (p)(normal 0 3))) ]
@@ -34,37 +197,12 @@ pivot_model='''
 [assume noise_p (lambda (fx x) (normal fx (noise (p x))) )] 
 
 [assume y_x (lambda (x) (noise_p (f x) x) ) ]
-                     
+              
 [assume y (mem (lambda (i) (y_x (x i))  ))] 
                      
 [assume n (gamma 1 100) ]
 [assume model_name (quote pivot)]
 '''
-
-pivot_model_simple='''
-[assume w0 (mem (lambda (p) (normal 0 3) ) ) ]
-[assume w1 (mem (lambda (p) (normal 0 3))) ]
-[assume w2 (mem (lambda (p) (normal 0 1))) ]
-[assume noise (gamma 5 1)]
-[assume pivot (normal 0 5)]
-[assume p (lambda (x) (if (< x pivot) false true) ) ]
-
-[assume f (lambda (x w0 w1 w2) (+ w0 (* w1 x) (* w2 (* x x) ) ) ) ]
-
-[assume y_x (lambda (x) 
-                ( (lambda (p) (normal  (f x (w0 p) (w1 p) (w2 p)) noise ) )
-                     (p x) ) ) ]
-
-[assume y (mem (lambda (i) (y_x (x i))  ))] 
-
-[assume y2 (mem (lambda (i) 
-                ( (lambda (x p)
-                    (noise_p  (f x (w0 p) (w1 p) (w2 p)) p ) )
-                     (x i) (p (x i)) 
-                     ) ) ) ]
-[assume n (gamma 1 1) ]
-[assume name (quote simple_pivot)]'''
-
 
 
 quad_fourier_model='''
@@ -82,7 +220,7 @@ quad_fourier_model='''
 [assume f (if (= model 0) quadratic fourier) ]
 
 [assume y_x (lambda (x) (normal (f x) noise) ) ]
-[assume y (mem (lambda (i) (normal (f (x i) ) noise) ) )]
+[assume y (mem (lambda (i) (y_x (x i))  ))] 
 [assume n (gamma 1 100)]
 [assume model_name (quote quad_fourier)]'''
 
@@ -98,16 +236,10 @@ logistic_model='''
 [assume f (lambda (x) (+ w0 (* w1 (sigmoid x) ) ) ) ]
 
 [assume y_x (lambda (x) (normal (f x) noise) ) ]
-[assume y (mem (lambda (i) (normal (f (x i) ) noise) ) )]
+[assume y (mem (lambda (i) (y_x (x i))  ))] 
 [assume n (gamma 1 100)]
 [assume model_name (quote logistic)]'''
 
-
-x_model_t_piece='''
-[assume nu (gamma 10 1)]
-[assume x_d (lambda () (student_t nu) ) ]
-[assume x_ind (mem (lambda (i) (x_d) ) )]
-'''
 
 def mk_piecewise(weight=.5,quad=True):
     s='''
@@ -130,11 +262,8 @@ def mk_piecewise(weight=.5,quad=True):
                          (lambda (fx) (normal fx (noise (p_func x)) ) ) 
                             ) ]
 
-  
     [assume y_x (lambda (x) ( (noise_p x) (f x) ) ) ]
-
-    [assume y (mem (lambda (i) (y_x (x_ind i))  ))] 
-
+    [assume y (mem (lambda (i) (y_x (x i))  ))] 
     [assume n (gamma 1 100) ]
     [assume model_name (quote piecewise)]
     '''
@@ -231,6 +360,49 @@ def get_name(r_mr):
     else:
         return 'anon model'
 
+
+def plot_conditional(ripl,xr=(-3,3),data=[],no_reps=15, no_xs=80, hexbin=False, return_fig=False):
+    
+    try: n = int( np.round( ripl.sample('n') ) )  #FIXME
+    except: n=0
+    if n>0:
+        d_xs = [ripl.sample('(x %i)' % i) for i in range(n)]
+        d_ys = [ripl.sample('(y %i)' % i) for i in range(n)]
+        xr = ( min(d_xs)-1,max(d_ys)+1 )
+    
+    xr = np.linspace(xr[0],xr[1],no_xs)
+    
+ 
+    f_xr = [ripl.predict('(f %f)' % x) for x in xr]
+    name='mod'
+    
+    xys = [[(x,ripl.predict('(y_x %f)' % x)) for r in range(no_reps)] for x in xr]
+    x_n = [ abs(np.std( [xy[1] for xy in xys[i] ]))  for i,x in enumerate(xr) ]
+    xs=[xy[0] for xy in flatten(xys)]; ys=[xy[1] for xy in flatten(xys)]
+    #fxp=[x+noi for x,noi in zip(xs,x_n)]; fxm=[x-noi for x,noi in zip(xs,x_n)]
+    
+    fig,ax = plt.subplots(1,3,figsize=(17,5),sharex=True,sharey=True)
+    
+    # plot data and f with noise
+    if data: ax[0].scatter(data[0],data[1])
+    if n>0: ax[0].scatter(d_xs,d_ys)
+    ax[0].set_color_cycle(['m', 'gray','gray'])
+    ax[0].plot(xr,f_xr,color='m'); #ax[0].scatter(xr,fxp,xr,fxm)
+    ax[0].set_title('Ripl: f (+- 1sd) ' )
+    
+    ax[1].scatter(xs,ys,s=5); ax[1].set_title('Ripl: Scatter P(y/X=x,params) ' )
+    
+        
+    xi,yi,zi=heatplot(np.array(zip(xs,ys)),nbins=100)
+    ax[2].pcolormesh(xi, yi, zi)
+    ax[2].set_title('Ripl: GKDE P(y/X=x,params) ' )
+    
+    if hexbin: 
+        fig,ax=subplots(figsize=(8,5))
+        ax.hexbin(xs, ys, gridsize=40, cmap="BuGn", extent=(min(xs),max(xs), min(ys),max(ys)) )   
+        ax.set_title('Ripl: Hexbin P(y/X=x,params) ' )
+    
+    return xs,ys
 
 def plot_cond(ripl,no_reps=20,return_fig=False,set_xr=None,plot=True):
     '''Plot f(x) with 1sd noise curves. Plot y_x with #(no_reps)

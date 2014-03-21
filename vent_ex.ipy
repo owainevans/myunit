@@ -257,28 +257,51 @@ d['pr9']='''
 
 ###############
 mvn='''
+[assume dot2 (lambda (v w) (suml (zip (ar_ls v) (ar_ls w) ) ) ) ] 
+
+[assume ar_ls_l (lambda (ar l u) (if (= l u) (list)
+                                 (pair (lookup ar l) (ar_ls_l ar (+ l 1) u) ) ) )]
+[assume ar_ls (lambda (ar) (ar_ls_l ar 0 (size ar)) ) ] 
+[assume noisy_true (lambda (pred noise) (if pred true (flip noise)) ) ]
+[assume obs_noise (beta 30 1) ]
+
 [assume stn (lambda () (normal 0 1))]
+[assume noi (lambda (x) (normal x .01) ) ]
 [assume x_d (lambda () (array (stn) (stn)) ) ]
 [assume xs (mem (lambda (i) (x_d) ) ) ]
 [assume a (array (array (stn) (stn)) (array (stn) (stn)) ) ]
+[assume sum_ar (lambda (v w) (array (+ (lookup v 0) (lookup w 0))  (+ (lookup v 1) (lookup w 1)) ) ) ]
 [assume dot (lambda (v w) (+ (* (lookup v 0) (lookup w 0))
                              (* (lookup v 1) (lookup w 1)) ) ) ]
- 
+
+
+
 [assume mat_vec (lambda (m v) (array (dot (lookup m 0) v) (dot (lookup m 1) v)))]
 
-[assume y_x (lambda (x) (mat_vec a x) )]
+[assume y_x (lambda (x) (map noi (ar_ls (mat_vec a x))  ) ) ]
 [assume y (mem (lambda (i) (y_x (xs i) ) ) ) ]'''
 
+## note: you can't add gaussian noise to variable and condition. have to always draw from a gaussian. 
+
+# note: what do we need to work with arrays? i don't think it's enough just to have
+# something that takes a thunk and repeatedly draws from it. if we had list2array, i think we'd be good.
+# e.g. to get a standard norm vector (list2array (map stn (ones n) ) )
+# e.g. to implement map_ar: (list2array (map f (array2lst) ) )
+#   where (array2lst ar) (let ([n (size ar)]) (if (= 0 n) nil (pair (lookup ar 0) (ar2lst 
+
+#  (array2lst ar l u) (if (= l u) (list) (pair (lookup ar l) (array2lst (ar (+ l + 1)
+
+
 [v.execute_program(mvn) for v in vs]
-ys = np.random.normal
 
 mean = [0,0]; cov = [[1,0],[0,1]];
 ys = np.random.multivariate_normal(mean,cov,10)
 
 def obs(ys):
-    [v.observe('(y_x)','(array %f %f)'%(y[0],y[1])) for v in vs for y in ys]
+    [v.observe('(noisy_true (= (lookup (y %i) 0) %f) obs_noise)' %(i,y[0]),'true') for v in vs for i,y in enumerate(ys)]
+    [v.observe('(noisy_true (= (lookup (y %i) 1) %f) obs_noise)' %(i,y[1]),'true') for v in vs for i,y in enumerate(ys)]
 
-obs(ys)
+#obs(ys)
 [v.infer(100) for v in vs]
 
 
