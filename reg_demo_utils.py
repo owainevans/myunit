@@ -165,26 +165,6 @@ def plot_conditional_hi(ripl,gps,xr=(-3,3),data=[],no_reps=15,no_xs=40,return_fi
         ax[gp,1].scatter(xs,ys,s=5)
         ax[gp,1].set_title('Ripl: Scatter P(y/X=x,params) ' )
     
-
-
-
-
-
-crp_model='''
-[assume alpha (uniform_continuous .01 1)]
-[assume crp (make_crp alpha) ]
-[assume gp (mem (lambda (i) (crp) ) ) ]
-[assume mu (mem (lambda (gp) (normal 0 5) ) ) ] 
-[assume sig (mem (lambda (gp) (uniform_continuous .1 8) ) ) ]
-[assume x_d (lambda () ( (lambda (gp) (normal (mu gp) (sig gp) )) (crp) ) ) ]
-[assume x (mem (lambda (i) (normal (mu (gp i)) (sig (gp i))))  ) ]
-[assume w (mem (lambda (gp j) (normal 0 (pow 2 (* -1 j)) ) ) )] 
-[assume noise (gamma 1 1) ]
-[assume f (lambda (gp x) (+ (w gp 0) (* (w gp 1) x) (* (w gp 2) (* x x)) ) ) ]
-
-[assume y (mem (lambda (i) (normal (f (gp i) (x i)) noise ) ))]
-'''
-#[assume y_x (lambda (gp x) (normal (f gp x) noise) ) ]
 crp_model2='''
 [assume alpha (uniform_continuous .01 1)]
 [assume crp (make_crp alpha) ]
@@ -217,16 +197,36 @@ simp_mod='''
 '''
 
 
+
+
+
+crp_model='''
+[assume alpha (uniform_continuous .01 1)]
+[assume crp (make_crp alpha) ]
+[assume gp (mem (lambda (i) (crp) ) ) ]
+[assume mu (mem (lambda (gp) (normal 0 5) ) ) ] 
+[assume sig (mem (lambda (gp) (uniform_continuous .1 8) ) ) ]
+[assume x_d (lambda () ( (lambda (gp) (normal (mu gp) (sig gp) )) (crp) ) ) ]
+[assume x (mem (lambda (i) (normal (mu (gp i)) (sig (gp i))))  ) ]
+[assume w (mem (lambda (gp j) (normal 0 (pow 2 (* -1 j)) ) ) )] 
+[assume noise (gamma 1 1) ]
+[assume f (lambda (gp x) (+ (w gp 0) (* (w gp 1) x) (* (w gp 2) (* x x)) ) ) ]
+
+[assume y (mem (lambda (i) (normal (f (gp i) (x i)) noise ) ))]
+'''
+#[assume y_x (lambda (gp x) (normal (f gp x) noise) ) ]
+
+
 def test_crp(highvar=True):
-    vs = [mk_l() for i in range(3)];
+    vs = [mk_c() for i in range(5)];
     [v.set_seed(np.random.randint(100)) for v in vs]
-    [v.execute_program(simp_mod) for v in vs]
+    [v.execute_program(crp_model) for v in vs]
     
     n=2*(15)
     #[plot_conditional_crp(v,N=1000) for v in vs]
     
-    xs0 = np.random.normal(-2,1,int(.5*n)); xs1 = np.random.normal(2,1,int(.5*n))
-    ys0 = (xs0+2)**2; ys1 = - ((xs0-2)**2)
+    xs0 = np.random.normal(-3,.6,int(.5*n)); xs1 = np.random.normal(3,.6,int(.5*n))
+    ys0 = 0.05 * ( (xs0+2)**2 ); ys1 = -.05 * (  ((xs0-2)**2) )
     xys = zip(list(xs0)+list(xs1), list(ys0)+list(ys1) )
     
     if not highvar: xys = zip(np.random.normal(-2,1,n),(xs0+2)**2 )
@@ -235,10 +235,10 @@ def test_crp(highvar=True):
         [v.observe('(x %i)' %i, '%f' % x) for v in vs]
         [v.observe('(y %i)' %i, '%f' % y) for v in vs]
     
-    [v.infer(100) for v in vs]
-    [plot_conditional_crp(v,data=np.array(xys),N=n+1) for v in vs]
-    
-    return vs
+    [v.infer(1000) for v in vs]
+    xygs = [plot_conditional_crp(v,data=np.array(xys),N=n+1) for v in vs]
+    no_gps=len(xygs)
+    return vs,xygs,no_gps
 
 
 def plot_conditional_crp(ripl,xr=(-4,4),data=[],N=1000,no_reps=10,no_xs=12,return_fig=0):
@@ -251,28 +251,69 @@ def plot_conditional_crp(ripl,xr=(-4,4),data=[],N=1000,no_reps=10,no_xs=12,retur
     gps=Counter([ripl.sample('(gp %i)'%i) for i in range(N-1)])
     gps = gps.keys()[:3]
     
-    fig,ax = plt.subplots(len(gps),1,figsize=(9,4*len(gps)))
+    fig,ax = plt.subplots(1+len(gps),1,figsize=(4,4*len(gps)))
     xyg=[ ] # len(gps)
     for count,gp in enumerate(gps):
         xys=[]
         for x in xr:
-            xys.append( (x, ripl.predict('(f %i %f) % (gp,x)'))  )
+            xys.append( (x, ripl.predict('(f %i %f)' % (gp,x)))  )
                         
-        if not(data==[]): ax[count,0].scatter(data[:,0],data[:,1],c='m')
+        if not(data==[]): ax[count].scatter(data[:,0],data[:,1],c='m')
 
         xs=[xy[0] for xy in if_lst_flatten(xys)]
         ys=[xy[1] for xy in if_lst_flatten(xys)]
-        ax[count,0].scatter(xs,ys,c='blue',s=4)
+        ax[count].scatter(xs,ys,c='blue',s=4)
 
         xyg.append(xys)
     
-                        
     return xyg
 
 
+#ripl.predict('(list (x %i) (y %i) )'%(ind,ind))
+
+
+ripl = mk_l()
+ripl.assume("alpha","(uniform_continuous .01 1)")
+ripl.assume("crp","(make_crp alpha)")
+ripl.assume("z","(mem (lambda (i) (crp) ) )")
+ripl.assume("mu","(mem (lambda (z) (normal 0 5) ) )")
+ripl.assume("sig","(mem (lambda (z) (uniform_continuous .1 8) ) )")
+
+ripl.assume("x","(mem (lambda (i) (normal (mu (z i)) (sig (z i)))) )")
+
+ripl.assume("w","(lambda (z) 1)")
+ripl.assume("f","(lambda (z x) (* (w z) x) )")
+
+#ripl.assume("y","(lambda (i) (normal (f (z i) (x i)) .1) )")
+
+ripl.assume("y","(mem (lambda (i) (normal (x i) .1) ))")
+
+
+# ripl = mk_l()
+
+# ripl.assume("crp","(make_crp 1)")
+# ripl.assume("z","(mem (lambda (i) (crp) ) )")
+# ripl.assume("mu","(mem (lambda (z) (normal 0 5) ) )")
+
+
+# ripl.assume("x","(mem (lambda (i) (normal (mu (z i)) 1 )))")
+
+# ripl.assume("y","(lambda (i) (normal (x i) .1) )")
+
+
+for i in range(10):
+    ripl.observe('(x %i)' %i, '%f' % 1.0)
+    ripl.observe('(y %i)' %i, '%f' % 2.0)
+ripl.infer(100)
+    
+for i in range(10,20):
+    [ripl.observe('(x %i)'%i,'%f' % 1) for reps in range(2)]
+    ripl.infer(10)
+    [ripl.predict('(y %i)'%i) for r in range(20) ]
 
 
 
+ripl.infer(100)
 
 
 x_model_t='''
