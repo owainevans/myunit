@@ -168,6 +168,113 @@ def plot_conditional_hi(ripl,gps,xr=(-3,3),data=[],no_reps=15,no_xs=40,return_fi
 
 
 
+
+
+crp_model='''
+[assume alpha (uniform_continuous .01 1)]
+[assume crp (make_crp alpha) ]
+[assume gp (mem (lambda (i) (crp) ) ) ]
+[assume mu (mem (lambda (gp) (normal 0 5) ) ) ] 
+[assume sig (mem (lambda (gp) (uniform_continuous .1 8) ) ) ]
+[assume x_d (lambda () ( (lambda (gp) (normal (mu gp) (sig gp) )) (crp) ) ) ]
+[assume x (mem (lambda (i) (normal (mu (gp i)) (sig (gp i))))  ) ]
+[assume w (mem (lambda (gp j) (normal 0 (pow 2 (* -1 j)) ) ) )] 
+[assume noise (gamma 1 1) ]
+[assume f (lambda (gp x) (+ (w gp 0) (* (w gp 1) x) (* (w gp 2) (* x x)) ) ) ]
+
+[assume y (mem (lambda (i) (normal (f (gp i) (x i)) noise ) ))]
+'''
+#[assume y_x (lambda (gp x) (normal (f gp x) noise) ) ]
+crp_model2='''
+[assume alpha (uniform_continuous .01 1)]
+[assume crp (make_crp alpha) ]
+[assume gp (mem (lambda (i) (crp) ) ) ]
+[assume mu (mem (lambda (gp) (normal 0 5) ) ) ] 
+[assume sig (mem (lambda (gp) (uniform_continuous .1 8) ) ) ]
+[assume x_d (lambda () ( (lambda (gp) (normal (mu gp) (sig gp) )) (crp) ) ) ]
+[assume x (mem (lambda (i) (normal (mu (gp i)) (sig (gp i))))  ) ]
+[assume w (mem (lambda (gp j) (normal 0 (pow 2 (* -1 j)) ) ) )] 
+[assume noise (gamma 1 1) ]
+[assume pick_f (lambda (gp) (lambda (x)
+                     (+ (w gp 0) (* (w gp 1) x) (* (w gp 2) (* x x)) ) ) ) ]
+[assume y_x (lambda (gp x) (normal ( (pick_f gp) x) noise) ) ]
+[assume y (mem (lambda (i) (y_x (gp i) (x i)) ) )]
+'''
+simp_mod='''
+[assume alpha (uniform_continuous .01 .5)]
+[assume crp (make_crp alpha) ]
+[assume z (mem (lambda (i) (crp) ) ) ]
+[assume mu (mem (lambda (z) (normal 0 5) ) ) ] 
+[assume sig (mem (lambda (z) (uniform_continuous .1 8) ) ) ]
+[assume x_d (lambda () ( (lambda (z) (normal (mu z) (sig z) )) (crp) ) ) ]
+[assume x (mem (lambda (i) (normal (mu (z i)) (sig (z i))))  ) ]
+
+[assume w (lambda (z) 1)]
+
+[assume f (lambda (z x) (* (w z) x) ) ]
+
+[assume y (mem (lambda (i) (normal (f (z i) (x i)) .1) ) ) ]
+'''
+
+
+def test_crp(highvar=True):
+    vs = [mk_l() for i in range(3)];
+    [v.set_seed(np.random.randint(100)) for v in vs]
+    [v.execute_program(simp_mod) for v in vs]
+    
+    n=2*(15)
+    #[plot_conditional_crp(v,N=1000) for v in vs]
+    
+    xs0 = np.random.normal(-2,1,int(.5*n)); xs1 = np.random.normal(2,1,int(.5*n))
+    ys0 = (xs0+2)**2; ys1 = - ((xs0-2)**2)
+    xys = zip(list(xs0)+list(xs1), list(ys0)+list(ys1) )
+    
+    if not highvar: xys = zip(np.random.normal(-2,1,n),(xs0+2)**2 )
+                           
+    for i,(x,y) in enumerate(xys):  
+        [v.observe('(x %i)' %i, '%f' % x) for v in vs]
+        [v.observe('(y %i)' %i, '%f' % y) for v in vs]
+    
+    [v.infer(100) for v in vs]
+    [plot_conditional_crp(v,data=np.array(xys),N=n+1) for v in vs]
+    
+    return vs
+
+
+def plot_conditional_crp(ripl,xr=(-4,4),data=[],N=1000,no_reps=10,no_xs=12,return_fig=0):
+    ## N is where we draws x,ys from to get samples; should be bigger than observed points
+    
+    xr = np.linspace(xr[0],xr[1],no_xs)
+    xys=[]
+
+    from collections import Counter
+    gps=Counter([ripl.sample('(gp %i)'%i) for i in range(N-1)])
+    gps = gps.keys()[:3]
+    
+    fig,ax = plt.subplots(len(gps),1,figsize=(9,4*len(gps)))
+    xyg=[ ] # len(gps)
+    for count,gp in enumerate(gps):
+        xys=[]
+        for x in xr:
+            xys.append( (x, ripl.predict('(f %i %f) % (gp,x)'))  )
+                        
+        if not(data==[]): ax[count,0].scatter(data[:,0],data[:,1],c='m')
+
+        xs=[xy[0] for xy in if_lst_flatten(xys)]
+        ys=[xy[1] for xy in if_lst_flatten(xys)]
+        ax[count,0].scatter(xs,ys,c='blue',s=4)
+
+        xyg.append(xys)
+    
+                        
+    return xyg
+
+
+
+
+
+
+
 x_model_t='''
 [assume nu (gamma 10 1)]
 [assume x_d (lambda () (student_t nu) ) ]
@@ -182,6 +289,7 @@ x_model_crp='''
 [assume x_d (lambda () ( (lambda (z) (normal (mu z) (sig z) )) (crp) ) ) ]
 [assume x (mem (lambda (i) (normal (mu (z i)) (sig (z i))))  ) ]
 '''
+
 pivot_model='''
 [assume w0 (mem (lambda (p)(normal 0 3))) ]
 [assume w1 (mem (lambda (p)(normal 0 3))) ]
