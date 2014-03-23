@@ -3,15 +3,7 @@ import matplotlib.pyplot as plt
 from venture.venturemagics.ip_parallel import *; 
 lite=False; 
 mk_l = make_lite_church_prime_ripl; mk_c = make_church_prime_ripl
-
 vs = test_ripls()
-
-## models to add
-# zero biased weights on coefficient
-# CRP regression
-# hierarch regression 
-# do model comparison
-# do y given x and vice versa
 
 
 simple_fourier_model='''
@@ -26,6 +18,7 @@ simple_fourier_model='''
 [assume y_x (lambda (x) (normal (f x) noise) ) ]
 [assume y (mem (lambda (i) (y_x (x i))  ))] 
 [assume n (gamma 1 1)]
+[assume model_name (quote simple_fourier)]
 '''
 simple_quadratic_model='''
 [assume w0 (normal 0 3) ]
@@ -37,7 +30,7 @@ simple_quadratic_model='''
 [assume f (lambda (x) (+ w0 (* w1 x) (* w2 (* x x)) ) ) ]
 [assume y_x (lambda (x) (normal (f x) noise) ) ]
 [assume y (mem (lambda (i) (y_x (x i)) ) )]
-[assume n (gamma 1 1)]
+[assume model_name (quote simple_quadratic)]
 '''
 hi_quadratic_model='''
 [assume mu_prior (mem (lambda (j) (normal 0 20))) ]
@@ -50,121 +43,8 @@ hi_quadratic_model='''
 [assume y_x (lambda (gp x) (normal (f gp x) noise) ) ]
 [assume y (mem (lambda (gp i) (y_x gp (x gp i)) ) )]
 [assume n (gamma 1 1)]
+[assume model_name (quote hi_quadratic)]
 '''
-
-
-def pred_xy(n):
-    xys=[]
-    for v in vs:
-        xys.append( [v.predict('(list (x %i %i) (y %i %i))'%(gp,ind,gp,ind)) for gp in range(2) for ind in range(n) ] )
-    return xys
-
-def pred_cond(n=30):
-    ys=[]
-    xr=np.linspace(-3,3,n)
-    for v in vs:
-        ys.append([[v.predict('(f %i %f)'%(gp,x)) for x in xr] for gp in range(2)])
-    ys=ys[0]
-    return zip(xr,ys[0]),zip(xr,ys[1])
-
-def diff_groups():
-    xy0,xy1 = pred_cond()
-    xy0=np.array(xy0); xy1=np.array(xy1);
-    return  np.abs(xy0 - xy1)
-
-def test_hi1():
-    diff1 = diff_groups()
-    # set all the priors on ws to have very low var, so all gps same
-    [v.observe('(sigma_prior %i)'%j,'.1') for v in vs for j in range(3)]
-    [v.observe('noise','.05') for v in vs]
-    [v.infer(500) for v in vs]
-    diff2 = diff_groups()
-    assert 2 > np.mean(diff2[:,1])
-    assert all(diff1[:,1] > diff2[:,1])
-
-# if two groups are the same, we should learn a small val for sig prior
-def test_hi2():
-    ## fix the ws = 1 and then should find small shared sigma
-    vs = [mk_l() for i in range(2)];
-    [v.set_seed(np.random.randint(100)) for v in vs]
-    [v.execute_program(hi_quadratic_model) for v in vs]
-    sigmas1=[v.predict('(sigma_prior %i)'%j) for v in vs for j in range(3)]
-    for gp in gps:
-        [v.observe('(w %i %i)'%(gp,i),'1') for v in vs for i in range(10)]
-    [v.infer(1000) for v in vs]
-    sigmas2=[v.predict('(sigma_prior %i)'%j) for v in vs for j in range(3)]
-    assert sigmas1>sigmas2
-
-def test_hi3():
-    ## learn same xys for each of 3 groups, so should be small shared sigma
-    vs = [mk_c() for i in range(2)];
-    [v.set_seed(np.random.randint(100)) for v in vs]
-    [v.execute_program(hi_quadratic_model) for v in vs]
-    sigmas1=[v.predict('(sigma_prior %i)'%j) for v in vs for j in range(3)]
-    N=20
-    xs=np.random.normal(0,3,N); ys = xs + np.random.normal(0,.01,N);
-    xys=zip(list(xs),list(ys)); xys=lst_flatten([xys] * 3)
-    xyg = [ [] ] * 3
-    xyg[0] = xys[:20]; xyg[1] = xys[20:40]; xyg[2]=xys[40:]
-    gps = [0,1,2]
-    for gp in gps:
-        xys = xyg[gp]
-        for i,(x,y) in enumerate(xys):
-            [v.observe('(x %i %i)' % (gp,i) , '%f' % x) for v in vs]
-            [v.observe('(y %i %i)' % (gp,i), '%f' % y ) for v in vs]
-    [v.infer(6000) for v in vs]
-    sigmas2=[v.predict('(sigma_prior %i)'%j) for v in vs for j in range(3)]
-    assert sigmas2 < sigmas1
-    return sigmas1,sigmas2
-
-def test_hi4():
-    vs = [mk_c() for i in range(2)];
-    [v.set_seed(np.random.randint(100)) for v in vs]
-    [v.execute_program(hi_quadratic_model) for v in vs]
-
-    plot_conditional_hi(vs[0],gps=6)
-    sigmas1=[v.predict('(sigma_prior %i)'%j) for v in vs for j in range(3)]
-    mus1=[v.predict('(mu_prior %i)'%j) for v in vs for j in range(3)]
-    xs = np.linspace(-3,3,8)
-    xyg=[zip(xs,list(4*i*xs)) for i in range(6) ]
-    for gp in range(6):
-        xys = xyg[gp]
-        for i,(x,y) in enumerate(xys):
-            [v.observe('(x %i %i)' % (gp,i) , '%f' % x) for v in vs]
-            [v.observe('(y %i %i)' % (gp,i), '%f' % y ) for v in vs]
-    [v.infer(3000) for v in vs]
-    sigmas2=[v.predict('(sigma_prior %i)'%j) for v in vs for j in range(3)]
-    mus2=[v.predict('(mu_prior %i)'%j) for v in vs for j in range(3)]
-    assert sigmas2[1]>sigmas1[1] and sigmas2[4]>sigmas1[4]
-    assert mus2[1]+3 > mus1[1] and mus2[4]+3 > mus2[4]
-
-    plot_conditional_hi(vs[0],gps=6)
-    return sigmas1,sigmas2,mus1,mus2
-
-vs=[mk_c() for reps in range(2)]
-[v.execute_program(hi_quadratic_model) for v in vs]
-v=vs[0]
-
-
-def plot_conditional_hi(ripl,gps,xr=(-3,3),data=[],no_reps=15,no_xs=40,return_fig=0):
-    xr = np.linspace(xr[0],xr[1],no_xs)
-    f_xr_g = [ 0 ] * gps; xys_g = [ 0 ] * gps
-    fig,ax = plt.subplots(gps,2,figsize=(9,4*gps))
-
-    for gp in range(gps):
-        f_xr=[ripl.predict('(f %i %f)' % (gp,x)) for x in xr]
-        xys=[[(x,ripl.predict('(y_x %i %f)'%(gp,x))) for r in range(no_reps)] for x in xr]
-        f_xr_g.append(f_xr); xys_g.append(xys)
-        xs=[xy[0] for xy in if_lst_flatten(xys)];
-        ys=[xy[1] for xy in if_lst_flatten(xys)]
-
-        if data: ax[gp,0].scatter(data[gp][0],data[gp][1])
-
-        ax[gp,0].plot(xr,f_xr,color='m'); #ax[0].scatter(xr,fxp,xr,fxm)
-        ax[gp,0].set_title('Ripl: f (+- 1sd) ' )
-        ax[gp,1].scatter(xs,ys,s=5)
-        ax[gp,1].set_title('Ripl: Scatter P(y/X=x,params) ' )
-    
 crp_model2='''
 [assume alpha (uniform_continuous .01 1)]
 [assume crp (make_crp alpha) ]
@@ -180,26 +60,6 @@ crp_model2='''
 [assume y_x (lambda (gp x) (normal ( (pick_f gp) x) noise) ) ]
 [assume y (mem (lambda (i) (y_x (gp i) (x i)) ) )]
 '''
-simp_mod='''
-[assume alpha (uniform_continuous .01 .5)]
-[assume crp (make_crp alpha) ]
-[assume z (mem (lambda (i) (crp) ) ) ]
-[assume mu (mem (lambda (z) (normal 0 5) ) ) ] 
-[assume sig (mem (lambda (z) (uniform_continuous .1 8) ) ) ]
-[assume x_d (lambda () ( (lambda (z) (normal (mu z) (sig z) )) (crp) ) ) ]
-[assume x (mem (lambda (i) (normal (mu (z i)) (sig (z i))))  ) ]
-
-[assume w (lambda (z) 1)]
-
-[assume f (lambda (z x) (* (w z) x) ) ]
-
-[assume y (mem (lambda (i) (normal (f (z i) (x i)) .1) ) ) ]
-'''
-
-
-
-
-
 crp_model='''
 [assume alpha (uniform_continuous .01 1)]
 [assume crp (make_crp alpha) ]
@@ -216,106 +76,6 @@ crp_model='''
 '''
 #[assume y_x (lambda (gp x) (normal (f gp x) noise) ) ]
 
-
-def test_crp(highvar=True):
-    vs = [mk_c() for i in range(5)];
-    [v.set_seed(np.random.randint(100)) for v in vs]
-    [v.execute_program(crp_model) for v in vs]
-    
-    n=2*(15)
-    #[plot_conditional_crp(v,N=1000) for v in vs]
-    
-    xs0 = np.random.normal(-3,.6,int(.5*n)); xs1 = np.random.normal(3,.6,int(.5*n))
-    ys0 = 0.05 * ( (xs0+2)**2 ); ys1 = -.05 * (  ((xs0-2)**2) )
-    xys = zip(list(xs0)+list(xs1), list(ys0)+list(ys1) )
-    
-    if not highvar: xys = zip(np.random.normal(-2,1,n),(xs0+2)**2 )
-                           
-    for i,(x,y) in enumerate(xys):  
-        [v.observe('(x %i)' %i, '%f' % x) for v in vs]
-        [v.observe('(y %i)' %i, '%f' % y) for v in vs]
-    
-    [v.infer(1000) for v in vs]
-    xygs = [plot_conditional_crp(v,data=np.array(xys),N=n+1) for v in vs]
-    no_gps=len(xygs)
-    return vs,xygs,no_gps
-
-
-def plot_conditional_crp(ripl,xr=(-4,4),data=[],N=1000,no_reps=10,no_xs=12,return_fig=0):
-    ## N is where we draws x,ys from to get samples; should be bigger than observed points
-    
-    xr = np.linspace(xr[0],xr[1],no_xs)
-    xys=[]
-
-    from collections import Counter
-    gps=Counter([ripl.sample('(gp %i)'%i) for i in range(N-1)])
-    gps = gps.keys()[:3]
-    
-    fig,ax = plt.subplots(1+len(gps),1,figsize=(4,4*len(gps)))
-    xyg=[ ] # len(gps)
-    for count,gp in enumerate(gps):
-        xys=[]
-        for x in xr:
-            xys.append( (x, ripl.predict('(f %i %f)' % (gp,x)))  )
-                        
-        if not(data==[]): ax[count].scatter(data[:,0],data[:,1],c='m')
-
-        xs=[xy[0] for xy in if_lst_flatten(xys)]
-        ys=[xy[1] for xy in if_lst_flatten(xys)]
-        ax[count].scatter(xs,ys,c='blue',s=4)
-
-        xyg.append(xys)
-    
-    return xyg
-
-
-#ripl.predict('(list (x %i) (y %i) )'%(ind,ind))
-
-
-ripl = mk_l()
-ripl.assume("alpha","(uniform_continuous .01 1)")
-ripl.assume("crp","(make_crp alpha)")
-ripl.assume("z","(mem (lambda (i) (crp) ) )")
-ripl.assume("mu","(mem (lambda (z) (normal 0 5) ) )")
-ripl.assume("sig","(mem (lambda (z) (uniform_continuous .1 8) ) )")
-
-ripl.assume("x","(mem (lambda (i) (normal (mu (z i)) (sig (z i)))) )")
-
-ripl.assume("w","(lambda (z) 1)")
-ripl.assume("f","(lambda (z x) (* (w z) x) )")
-
-#ripl.assume("y","(lambda (i) (normal (f (z i) (x i)) .1) )")
-
-ripl.assume("y","(mem (lambda (i) (normal (x i) .1) ))")
-
-
-# ripl = mk_l()
-
-# ripl.assume("crp","(make_crp 1)")
-# ripl.assume("z","(mem (lambda (i) (crp) ) )")
-# ripl.assume("mu","(mem (lambda (z) (normal 0 5) ) )")
-
-
-# ripl.assume("x","(mem (lambda (i) (normal (mu (z i)) 1 )))")
-
-# ripl.assume("y","(lambda (i) (normal (x i) .1) )")
-
-
-for i in range(10):
-    ripl.observe('(x %i)' %i, '%f' % 1.0)
-    ripl.observe('(y %i)' %i, '%f' % 2.0)
-ripl.infer(100)
-    
-for i in range(10,20):
-    [ripl.observe('(x %i)'%i,'%f' % 1) for reps in range(2)]
-    ripl.infer(10)
-    [ripl.predict('(y %i)'%i) for r in range(20) ]
-
-
-
-ripl.infer(100)
-
-
 x_model_t='''
 [assume nu (gamma 10 1)]
 [assume x_d (lambda () (student_t nu) ) ]
@@ -330,7 +90,6 @@ x_model_crp='''
 [assume x_d (lambda () ( (lambda (z) (normal (mu z) (sig z) )) (crp) ) ) ]
 [assume x (mem (lambda (i) (normal (mu (z i)) (sig (z i))))  ) ]
 '''
-
 pivot_model='''
 [assume w0 (mem (lambda (p)(normal 0 3))) ]
 [assume w1 (mem (lambda (p)(normal 0 3))) ]
@@ -352,8 +111,6 @@ pivot_model='''
 [assume n (gamma 1 100) ]
 [assume model_name (quote pivot)]
 '''
-
-
 quad_fourier_model='''
 [assume w0 (normal 0 3) ]
 [assume w1 (normal 0 3) ]
@@ -401,16 +158,14 @@ def mk_piecewise(weight=.5,quad=True):
     [assume w2 (mem (lambda (p)(normal 0 1))) ]
     [assume noise (mem (lambda (p) (gamma 5 1) )) ]
     [assume width <<width>>]
-    
+
     [assume p_func (lambda (x) (1) )]
     [assume f (lambda (x)
                  ( (lambda (p) (+ (w0 p) (* (w1 p) x) (* (w2 p) (* x x)))  ) 
                    (p_func x)  ) ) ]
-
     [assume noise_p (lambda (x) 
                          (lambda (fx) (normal fx (noise (p_func x)) ) ) 
                             ) ]
-
     [assume y_x (lambda (x) ( (noise_p x) (f x) ) ) ]
     [assume y (mem (lambda (i) (y_x (x i))  ))] 
     [assume n (gamma 1 100) ]
@@ -498,60 +253,129 @@ def logscores(mr,name='Model'):
     return np.mean(logscore), np.max(logscore)
 
 
-def get_name(r_mr):
-    mr=1 if isinstance(r_mr,MRipl) else 0
-    di_l = r_mr.list_directives()[0] if mr else r_mr.list_directives()
-    if 'model_name' in str(di_l):
-        try:
-            n = r_mr.sample('model_name')[0] if mr else r_mr.sample('model_name')
-            return n
-        except: pass
-    else:
-        return 'anon model'
+# def get_name(r_mr):
+#     mr=1 if isinstance(r_mr,MRipl) else 0
+#     di_l = r_mr.list_directives()[0] if mr else r_mr.list_directives()
+#     if 'model_name' in str(di_l):
+#         try:
+#             n = r_mr.sample('model_name')[0] if mr else r_mr.sample('model_name')
+#             return n
+#         except: pass
+#     else:
+#         return 'anon model'
 
 
-def plot_conditional(ripl,xr=(-3,3),data=[],no_reps=15, no_xs=80, hexbin=False, return_fig=False):
-    
-    try: n = int( np.round( ripl.sample('n') ) )  #FIXME
-    except: n=0
-    if n>0:
-        d_xs = [ripl.sample('(x %i)' % i) for i in range(n)]
-        d_ys = [ripl.sample('(y %i)' % i) for i in range(n)]
-        xr = ( min(d_xs)-1,max(d_ys)+1 )
+
+def plot_conditional(ripl,xr=(-3,3),data=[],no_reps=20, no_xs=20, return_fig=False):
+    ##FIXME 'Should be sample or predict???', 
+    # FIXME return_fig
+    name=get_name(ripl)
+
+    # try: n = int( np.round( ripl.sample('n') ) )  #FIXME
+    # except: n=0
+    # if n>0:
+    #     d_xs = [ripl.sample('(x %i)' % i) for i in range(n)]
+    #     d_ys = [ripl.sample('(y %i)' % i) for i in range(n)]
+    #     data = (d_xs,d_ys)
+    #     xr = ( min(d_xs)-1,max(d_ys)+1 )
     
     xr = np.linspace(xr[0],xr[1],no_xs)
     
- 
     f_xr = [ripl.predict('(f %f)' % x) for x in xr]
-    name='mod'
+    if "'symbol': 'noise'" in str(ripl.list_directives()):
+        noise=ripl.sample('noise')
+        fixed_noise = isinstance(noise,float)
+        if fixed_noise:
+            f_u = [fx+noise for fx in f_xr]; f_l = [fx-noise for fx in f_xr]
     
-    xys = [[(x,ripl.predict('(y_x %f)' % x)) for r in range(no_reps)] for x in xr]
-    x_n = [ abs(np.std( [xy[1] for xy in xys[i] ]))  for i,x in enumerate(xr) ]
-    xs=[xy[0] for xy in flatten(xys)]; ys=[xy[1] for xy in flatten(xys)]
-    #fxp=[x+noi for x,noi in zip(xs,x_n)]; fxm=[x-noi for x,noi in zip(xs,x_n)]
+    # sample y_xs and compute 1sd intervals
+    xys=[]; ymean=[]; ystd=[]
+    for x in xr:
+        x_y = [ripl.predict('(y_x %f)' % x) for r in range(no_reps)]        
+        ymean.append( np.mean(x_y) )
+        ystd.append( np.abs( np.std(x_y) ) )
+        xys.extend( [(x,y) for y in x_y] )
     
+    xs,ys = zip(*xys)
+    ymean = np.array(ymean); ystd = np.array(ystd)
+    y_u = ymean+ystd; y_l = ymean - ystd
+    if not fixed_noise:
+        f_u = y_u ; f_l = y_l
+
+    # Plotting
     fig,ax = plt.subplots(1,3,figsize=(17,5),sharex=True,sharey=True)
     
     # plot data and f with noise
-    if data: ax[0].scatter(data[0],data[1])
-    if n>0: ax[0].scatter(d_xs,d_ys)
-    ax[0].set_color_cycle(['m', 'gray','gray'])
-    ax[0].plot(xr,f_xr,color='m'); #ax[0].scatter(xr,fxp,xr,fxm)
-    ax[0].set_title('Ripl: f (+- 1sd) ' )
+    if data: ax[0].scatter(data[0],data[1],label='Data')    
     
-    ax[1].scatter(xs,ys,s=5); ax[1].set_title('Ripl: Scatter P(y/X=x,params) ' )
-    
+    ax[0].plot(xr, f_xr, 'k', color='#CC4F1B')
+    ax[0].fill_between(xr,f_l,f_u,alpha=0.5,edgecolor='#CC4F1B',facecolor='#FF9848')
+    ax[0].set_title('Ripl: f (+- 1sd noise) w/ data [name: %s] ' % name )
+    ax[0].legend()
+    ax[1].scatter(xs,ys,alpha=0.7,s=5,facecolor='0.6', lw = 0)
+    ax[1].plot(xr, ymean, 'k', alpha=.9,color='m',linewidth=1)
+    ax[1].plot(xr, y_l, 'k', alpha=.8, color='m',linewidth=.5)
+    ax[1].plot(xr, y_u, 'k', alpha=.8,color='m',linewidth=.5)
+    ax[1].set_title('Ripl: Samples from P(y/X=x), w/ mean +- 1sd [name: %s] ' % name )
         
     xi,yi,zi=heatplot(np.array(zip(xs,ys)),nbins=100)
     ax[2].pcolormesh(xi, yi, zi)
-    ax[2].set_title('Ripl: GKDE P(y/X=x,params) ' )
+    ax[2].set_title('Ripl: GKDE P(y/X=x) [name: %s] ' % name )
     
-    if hexbin: 
-        fig,ax=subplots(figsize=(8,5))
-        ax.hexbin(xs, ys, gridsize=40, cmap="BuGn", extent=(min(xs),max(xs), min(ys),max(ys)) )   
-        ax.set_title('Ripl: Hexbin P(y/X=x,params) ' )
+    fig.tight_layout()
+    ## returns the function and then then the conditional
+    return {'f':(xr,f_xr),'xs,ys':(xs,ys)} 
+
+
+def posterior_conditional(mr,xr=(-3,3),data=[],no_reps=20, no_xs=20, return_fig=False ):
     
-    return xs,ys
+    name=get_name(mr)
+    
+    xr = np.linspace(xr[0],xr[1],no_xs)
+    
+    
+    ## get some curves (LIMIT)
+    #list_out=mr_plot_conditional(mr,limit=4,data=data,xr=xr,no_reps=1,no_xs=no_xs)
+    #fs = [ ripl_out['f'] for ripl_out in list_out]
+    fs=[xr,xr]
+
+
+    ## get y_xs from ripls and compute 1sd intervals
+    for x in xr:
+        # we get no_reps predicts from each ripl in mr
+        x_y=if_lst_flatten([mr.predict('(y_x %f)' % x) for r in range(no_reps)])   
+        ymean.append( np.mean(x_y) )
+        ystd.append( np.abs( np.std(x_y) ) )
+        xys.extend( [(x,y) for y in x_y] )
+    
+    xs,ys = zip(*xys)
+    ymean = np.array(ymean); ystd = np.array(ystd)
+    y_u = ymean+ystd; y_l = ymean-ystd
+    
+     # Plotting
+    fig,ax = plt.subplots(1,3,figsize=(17,5),sharex=True,sharey=True)
+
+    if data: ax[0].scatter(data[0],data[1],label='Data')
+    # sampled fs from mripl
+    [ax[0].plot(f[0],f[1],alpha=.6,linewidth=.5) for f in fs]
+    ax[0].legend()
+    ax[0].set_title('MR: Sampled fs w/ data [name: %s] ' % name )
+    
+    ax[1].scatter(xs,ys,alpha=0.5,s=5,facecolor='0.6', lw = 0)
+    ax[1].plot(xr, ymean, 'k', alpha=.9,color='m',linewidth=1)
+    ax[1].plot(xr, y_l, 'k', alpha=.8, color='m',linewidth=.5)
+    ax[1].plot(xr, y_u, 'k', alpha=.8,color='m',linewidth=.5)
+    ax[1].set_title('MR: Samples from P(y/X=x), w/ mean +- 1sd [name: %s] ' % name )
+        
+    xi,yi,zi=heatplot(np.array(zip(xs,ys)),nbins=100)
+    ax[2].pcolormesh(xi, yi, zi)
+    ax[2].set_title('MR: GKDE P(y/X=x) [name: %s] ' % name )
+    
+    fig.tight_layout()
+    ## returns the function and then then the conditional
+    return (xr,f_xr),(xs,ys)
+
+
 
 def plot_cond(ripl,no_reps=20,return_fig=False,set_xr=None,plot=True):
     '''Plot f(x) with 1sd noise curves. Plot y_x with #(no_reps)
@@ -743,18 +567,3 @@ def if_lst_flatten(l):
     return l
     
     
-
-
-
-   
-
-
-### PLAN: different plots/scores
-#1. av logscore and best logscore.
-# 2. plot the curve, adding noise error (easiest way is with y_x)
-# 3. plot the joint (sample both x's and y's)
-# 4. plot posterior on sets of params
-# 5. plot posterior conditional
-# 6. plot posterior joint (the posterior join density over x,y: get from running chain long time or combining chains)
-# 7. plot p(x / y) for some particular y's 
-
