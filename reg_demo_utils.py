@@ -22,8 +22,8 @@ simple_fourier_model='''
 '''
 simple_quadratic_model='''
 [assume w0 (normal 0 3) ]
-[assume w1 (normal 0 3) ]
-[assume w2 (normal 0 3) ]
+[assume w1 (normal 0 1) ]
+[assume w2 (normal 0 .3) ]
 [assume x (mem (lambda (i) (x_d) ) )]
 [assume x_d (lambda () (normal 0 5))]
 [assume noise (gamma 2 1) ]
@@ -73,6 +73,7 @@ crp_model='''
 [assume f (lambda (gp x) (+ (w gp 0) (* (w gp 1) x) (* (w gp 2) (* x x)) ) ) ]
 
 [assume y (mem (lambda (i) (normal (f (gp i) (x i)) noise ) ))]
+[assume model_name (quote crp)]
 '''
 #[assume y_x (lambda (gp x) (normal (f gp x) noise) ) ]
 
@@ -92,8 +93,8 @@ x_model_crp='''
 '''
 pivot_model='''
 [assume w0 (mem (lambda (p)(normal 0 3))) ]
-[assume w1 (mem (lambda (p)(normal 0 3))) ]
-[assume w2 (mem (lambda (p)(normal 0 1))) ]
+[assume w1 (mem (lambda (p)(normal 0 1))) ]
+[assume w2 (mem (lambda (p)(normal 0 .3))) ]
 [assume noise (mem (lambda (p) (gamma 2 1) )) ]
 [assume pivot (normal 0 5)]
 [assume p (lambda (x) (if (< x pivot) false true) ) ]
@@ -113,8 +114,8 @@ pivot_model='''
 '''
 quad_fourier_model='''
 [assume w0 (normal 0 3) ]
-[assume w1 (normal 0 3) ]
-[assume w2 (normal 0 1) ]
+[assume w1 (normal 0 2.5) ]
+[assume w2 (normal 0 .3) ]
 [assume omega (normal 0 3) ]
 [assume theta (normal 0 3) ]
 
@@ -266,7 +267,7 @@ def logscores(mr,name='Model'):
 
 
 
-def plot_conditional(ripl,xr=(-3,3),data=[],no_reps=20, no_xs=20, return_fig=False):
+def plot_conditional(ripl,xr=(-3,3),data=[],no_reps=10, no_xs=25, return_fig=False):
     ##FIXME 'Should be sample or predict???', 
     # FIXME return_fig
     name=get_name(ripl)
@@ -281,7 +282,7 @@ def plot_conditional(ripl,xr=(-3,3),data=[],no_reps=20, no_xs=20, return_fig=Fal
     
     xr = np.linspace(xr[0],xr[1],no_xs)
     
-    f_xr = [ripl.predict('(f %f)' % x) for x in xr]
+    f_xr = [ripl.sample('(f %f)' % x) for x in xr]
     if "'symbol': 'noise'" in str(ripl.list_directives()):
         noise=ripl.sample('noise')
         fixed_noise = isinstance(noise,float)
@@ -291,7 +292,7 @@ def plot_conditional(ripl,xr=(-3,3),data=[],no_reps=20, no_xs=20, return_fig=Fal
     # sample y_xs and compute 1sd intervals
     xys=[]; ymean=[]; ystd=[]
     for x in xr:
-        x_y = [ripl.predict('(y_x %f)' % x) for r in range(no_reps)]        
+        x_y = [ripl.sample('(y_x %f)' % x) for r in range(no_reps)]        
         ymean.append( np.mean(x_y) )
         ystd.append( np.abs( np.std(x_y) ) )
         xys.extend( [(x,y) for y in x_y] )
@@ -306,21 +307,22 @@ def plot_conditional(ripl,xr=(-3,3),data=[],no_reps=20, no_xs=20, return_fig=Fal
     fig,ax = plt.subplots(1,3,figsize=(17,5),sharex=True,sharey=True)
     
     # plot data and f with noise
-    if data: ax[0].scatter(data[0],data[1],label='Data')    
+    if data: ax[0].scatter(zip(*data)[0],zip(*data)[1],label='Data')
     
     ax[0].plot(xr, f_xr, 'k', color='#CC4F1B')
     ax[0].fill_between(xr,f_l,f_u,alpha=0.5,edgecolor='#CC4F1B',facecolor='#FF9848')
-    ax[0].set_title('Ripl: f (+- 1sd noise) w/ data [name: %s] ' % name )
+    ax[0].set_title('Ripl: f (+- 1sd noise) w/ data [name: %s]' % name )
     ax[0].legend()
     ax[1].scatter(xs,ys,alpha=0.7,s=5,facecolor='0.6', lw = 0)
+
     ax[1].plot(xr, ymean, 'k', alpha=.9,color='m',linewidth=1)
     ax[1].plot(xr, y_l, 'k', alpha=.8, color='m',linewidth=.5)
     ax[1].plot(xr, y_u, 'k', alpha=.8,color='m',linewidth=.5)
-    ax[1].set_title('Ripl: Samples from P(y/X=x), w/ mean +- 1sd [name: %s] ' % name )
+    ax[1].set_title('Ripl: Samples from P(y/X=x), w/ mean +- 1sd [name: %s]' % name )
         
     xi,yi,zi=heatplot(np.array(zip(xs,ys)),nbins=100)
     ax[2].pcolormesh(xi, yi, zi)
-    ax[2].set_title('Ripl: GKDE P(y/X=x) [name: %s] ' % name )
+    ax[2].set_title('Ripl: GKDE P(y/X=x) [name: %s]' % name )
     
     fig.tight_layout()
     ## returns the function and then then the conditional
@@ -341,9 +343,10 @@ def posterior_conditional(mr,xr=(-3,3),data=[],no_reps=20, no_xs=20, return_fig=
 
 
     ## get y_xs from ripls and compute 1sd intervals
+    xys=[]; ymean=[]; ystd=[]
     for x in xr:
         # we get no_reps predicts from each ripl in mr
-        x_y=if_lst_flatten([mr.predict('(y_x %f)' % x) for r in range(no_reps)])   
+        x_y=if_lst_flatten([mr.sample('(y_x %f)' % x) for r in range(no_reps)])   
         ymean.append( np.mean(x_y) )
         ystd.append( np.abs( np.std(x_y) ) )
         xys.extend( [(x,y) for y in x_y] )
@@ -355,7 +358,7 @@ def posterior_conditional(mr,xr=(-3,3),data=[],no_reps=20, no_xs=20, return_fig=
      # Plotting
     fig,ax = plt.subplots(1,3,figsize=(17,5),sharex=True,sharey=True)
 
-    if data: ax[0].scatter(data[0],data[1],label='Data')
+    if data: [ax[col].scatter(zip(*data)[0],zip(*data)[1],label='Data') for col in [1,2]]
     # sampled fs from mripl
     [ax[0].plot(f[0],f[1],alpha=.6,linewidth=.5) for f in fs]
     ax[0].legend()
@@ -366,90 +369,15 @@ def posterior_conditional(mr,xr=(-3,3),data=[],no_reps=20, no_xs=20, return_fig=
     ax[1].plot(xr, y_l, 'k', alpha=.8, color='m',linewidth=.5)
     ax[1].plot(xr, y_u, 'k', alpha=.8,color='m',linewidth=.5)
     ax[1].set_title('MR: Samples from P(y/X=x), w/ mean +- 1sd [name: %s] ' % name )
+    ax[1].legend()
         
     xi,yi,zi=heatplot(np.array(zip(xs,ys)),nbins=100)
     ax[2].pcolormesh(xi, yi, zi)
     ax[2].set_title('MR: GKDE P(y/X=x) [name: %s] ' % name )
     
     fig.tight_layout()
-    ## returns the function and then then the conditional
-    return (xr,f_xr),(xs,ys)
-
-
-
-def plot_cond(ripl,no_reps=20,return_fig=False,set_xr=None,plot=True):
-    '''Plot f(x) with 1sd noise curves. Plot y_x with #(no_reps)
-    y values for each x. Use xrange with limits based on posterior on P(x).'''
     
-    if set_xr!=None:
-        xr=set_xr; n=0
-    else: # find x-range from min/max of observed points
-        try: n = int( np.round( ripl.sample('n') ) )  #FIXME
-        except: n=0
-        if n==0:
-            xr= np.linspace(-3,3,50);
-        else:
-            d_xs = [ripl.sample('(x %i)' % i) for i in range(n)]
-            d_ys = [ripl.sample('(y %i)' % i) for i in range(n)]
-            xr = np.linspace(1.5*min(d_xs),1.5*max(d_xs),30)
-    
-    f_xr = [ripl.sample('(f %f)' % x) for x in xr]
-    
-    # gaussian noise 1sd
-    h_noise = ['pivot','piecewise']
-    name=get_name(ripl)
-    noise=ripl.sample('(noise 0)') if name in h_noise else ripl.sample('noise')
-    f_a = [fx+noise for fx in f_xr]
-    f_b = [fx-noise for fx in f_xr]
-
-    # scatter for y conditional on x
-    if plot:
-        xys1 = [[(x,ripl.sample('(y_x %f)' % x)) for r in range(no_reps)] for x in xr]
-        xys = if_lst_flatten(xys1)
-        
-        xs=[xy[0] for xy in xys]; ys=[xy[1] for xy in xys]
-        
-        #y_x = [  [ripl.sample('(y_x %f)' % x) for r in range(no_reps)] for x in xr]
-        fig,ax = plt.subplots(1,3,figsize=(14,4),sharex=True,sharey=True)
-        if n!=0: ax[0].scatter(d_xs,d_ys)
-        ax[0].set_color_cycle(['m', 'gray','gray'])
-        ax[0].plot(xr,f_xr,xr,f_a,xr,f_b)
-        ax[0].set_title('Ripl: f (+- 1sd) (name= %s )' % name)
-        ax[1].scatter(xs,ys,s=5,c='gray')
-        #[ ax[1].scatter(xr,[y[i] for y in y_x],s=5,c='gray') for i in range(no_reps) ]
-        ax[1].set_title('Ripl: Scatter P(y/X=x,params) (name= %s)' % name)
-        
-        xi,yi,zi=heatplot(np.array(zip(xs,ys)),nbins=100)
-        ax[2].pcolormesh(xi, yi, zi)
-        ax[2].set_title('Ripl: GKDE P(y/X=x,params) (name= %s)' % name )
-        fig.tight_layout()
-        if return_fig:
-            return fig,xs,ys
-        else:
-            return xs,ys
     return xs,ys
-
-
-def plot_joint(ripl,no_reps=500,return_fig=False):
-    '''Sample from joint P(x,y), holding other params fixed '''
-    name=get_name(ripl)
-    
-    xs = [ ripl.sample('(x_d)') for i in range(no_reps) ]
-    ys = [ ripl.sample('(y_x %f)' % x) for x in xs]
-    
-    fig,ax = plt.subplots(1,2,figsize=(12,4),sharex=True,sharey=True)
-    ax[0].scatter(xs,ys,s=5,c='gray')
-    ax[0].set_title('Single ripl: %i samples from P(x,y / params) (name= %s)' % no_reps, name)
-
-    xi,yi,zi=heatplot(np.array(zip(xs,ys)),nbins=100)
-    ax[1].pcolormesh(xi, yi, zi)
-    ax[1].set_title('Single ripl: GKDE of %i samples from P(x,y / params) (name= %s)' % (no_reps,name) )
-    fig.tight_layout()
-    
-    if return_fig:
-        return fig,xs,ys
-    else:
-        return xs,ys
 
 
 
@@ -493,17 +421,18 @@ def params_compare(mr,exp_pair,xys,no_transitions,plot=False):
         
     xys=np.array(xys); xs=[None] + list( xys[:,0] ); ys=[None] + list( xys[:,1] )
 
-    fig,ax = plt.subplots(len(vals_list), 2, figsize=(12,len(vals_list)*4))
+    fig,ax = plt.subplots(len(vals_list), 2, figsize=(12,len(vals_list)*3),
+                          sharex='col',sharey='col')
 
     for i,vals in enumerate(vals_list):
-        ax[i,0].scatter( vals[exp_pair[0]], vals[exp_pair[1]], s=6)
+        ax[i,0].scatter( vals[exp_pair[0]], vals[exp_pair[1]], c='.6',s=5,lw=0)
         ax[i,0].set_title('%s vs. %s (name=%s)' % (exp_pair[0],
                                                    exp_pair[1],name) )
         ax[i,0].set_xlabel(exp_pair[0]); ax[i,0].set_ylabel(exp_pair[1])
         if i>0:
-            ax[i,1].scatter(xs[1:i], ys[1:i], c='blue') ## FIXME start from 1 to ignore prior
-            ax[i,1].scatter(xs[i], ys[i], c='red')
-            ax[i,1].set_title('Data with new point (%f,%f)'%(xs[i],ys[i]))
+            ax[i,1].scatter(xs[1:i], ys[1:i], c='blue',lw=0) ## FIXME start from 1 to ignore prior
+            ax[i,1].scatter(xs[i], ys[i], c='red',lw=0)
+            ax[i,1].set_title('Data with new point (%.2f,%.2f)'%(xs[i],ys[i]))
         
     fig.tight_layout()
     return fig,vals_list
