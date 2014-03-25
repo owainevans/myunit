@@ -309,12 +309,6 @@ def obs(ys):
 
 
 
-
-
-
-
-
-
 alpha_topic_word = '50' # high concentration, so each topic a uniform dist
 no_topics = 5
 size_vocab = 20
