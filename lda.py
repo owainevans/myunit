@@ -8,34 +8,53 @@ def normalize(lst):
 ro = lambda ar: np.round(ar,2)
 
 
+
 def mk_lda(clda=True,no_topics=5,size_vocab=20,
            alpha_t_prior='(gamma 1 1)',alpha_w_prior='(gamma 1 1)'):
     lda='''
-    [assume topics %i]
-    [assume vocab %i]
+    [assume no_topics %i]
+    [assume size_vocab %i]
     [assume alpha_t %s ]
     [assume alpha_w %s ]
-    [assume doc (mem (lambda (doc_ind) (make_sym_dir_mult alpha_t topics) ) )]
-    [assume topic (mem (lambda (topic_ind) (make_sym_dir_mult alpha_w vocab) ) )]
-    [assume word (mem (lambda (doc_ind word_ind) ( (topic ((doc doc_ind)) ) )  ) ) ]
+    [assume doc (mem (lambda (doc_ind) (if (is_atom doc_ind) (make_sym_dir_mult alpha_t no_topics) 
+                                                              (quote not_atom) ) ))]
+    [assume topic (mem (lambda (topic_ind) (if (is_atom topic_ind) (make_sym_dir_mult alpha_w size_vocab)
+                                                                     (quote not_atom)) ))]
+    [assume word (mem (lambda (doc_ind word_ind) (if (and (is_atom doc_ind) (not (is_atom word_ind)))
+                                                       ( (topic ((doc doc_ind))) ) 
+                                                       (quote type_error) ) ) ) ]
     ''' % (no_topics,size_vocab,alpha_t_prior,alpha_w_prior)
 
     ulda='''
-    [assume topics %i]
-    [assume vocab %i]
+    [assume no_topics %i]
+    [assume size_vocab %i]
     [assume alpha_t %s ]
     [assume alpha_w %s ]
-    [assume doc (mem (lambda (doc_ind) (symmetric_dirichlet alpha_t topics)))]
-    [assume topic (mem (lambda (topic_ind) (symmetric_dirichlet alpha_w vocab) ) )]
-    [assume z (mem (lambda (doc_ind word_ind) (categorical (doc doc_ind)) ) ) ]
-    [assume word (mem (lambda (doc_ind word_ind)
-      (categorical (topic (z doc_ind word_ind) ) ) ) ) ] 
+    [assume doc (mem (lambda (doc_ind) (if (is_atom doc_ind)
+                                            (symmetric_dirichlet alpha_t no_topics)
+                                            (quote not_atom))))]
+    [assume topic (mem (lambda (topic_ind) (if (is_atom topic_ind) 
+                                                (symmetric_dirichlet alpha_w size_vocab)
+                                                (quote not_atom)))  )]
+    [assume z (mem (lambda (doc_ind word_ind) (if (and (is_atom doc_ind) (not (is_atom word_ind)))
+                                                    (categorical (doc doc_ind))
+                                                    (quote type_error) )) ) ]
+    [assume w_th (lambda (doc_ind word_ind) (if (and (is_atom doc_ind) (not (is_atom word_ind)))
+                                                (categorical (topic (z doc_ind word_ind) ) )
+                                                (quote type_error) )) ]
+    
+    [assume word (mem (lambda (doc_ind word_ind) (if (and (is_atom doc_ind) (not (is_atom word_ind)))
+                                                  (categorical (topic (z doc_ind word_ind) ) )
+                                                  (quote type_error) ) ) ) ] 
     ''' % (no_topics,size_vocab,alpha_t_prior,alpha_w_prior)
     return lda if clda else ulda
 
+
+
+
 def test_lda():
     def gen_data(lite=0,clda=1):
-        vs=[mk_c() for i in range(2)] if not(lite) else [mk_l() for i in range(2)]
+        vs=[mk_p_ripl() for i in range(2)] if not(lite) else [mk_l_ripl() for i in range(2)]
         no_topics=2;size_vocab=20; nt=no_topics; sv=size_vocab
         vs[0].execute_program(mk_lda(clda=clda,no_topics=nt,size_vocab=sv,
                                      alpha_w_prior='.5') )
@@ -45,25 +64,26 @@ def test_lda():
         for i,v in enumerate(vs):
             corpus[i]=[]
             for doc in range(no_docs):
-                p=[v.predict('(word %i %i)' % (doc,ind) ) for ind in range(words_per_doc)]
+                p=[v.predict('(word atom<%i> %i)' % (doc,ind) ) for ind in range(words_per_doc)]
                 corpus[i].append(p)
         
         assert 3>np.mean(np.abs((np.mean(corpus[0],axis=1) - np.mean(range(sv))))) 
         assert sum(np.std(corpus[1],axis=1)) < sum(np.std(corpus[0],axis=1))
         
         if not(clda):
-            uni = np.array( vs[0].sample('(topic 0)') )
-            concen = np.array( vs[1].sample('(topic 0)') )
+            uni = np.array( vs[0].sample('(topic atom<0>)') )
+            concen = np.array( vs[1].sample('(topic atom<0>)') )
             
             assert .1 > np.mean( np.abs( uni - 1./size_vocab) )
             assert any(.85 < np.abs( concen - 1./size_vocab) )
              
-            print [v.sample('(topic 0)') for v in vs]
-            print [v.sample('(doc 0)') for v in vs]
+            print [v.sample('(topic atom<0>)') for v in vs]
+            print [v.sample('(doc atom<0>)') for v in vs]
     
     gen_data(lite=0,clda=1)
     gen_data(lite=0,clda=0)
     gen_data(lite=1,clda=1)
+    gen_data(lite=1,clda=0)
     return None
 
 def no_x(n,x): return str(int(n)).count(str(int(x)))
@@ -243,6 +263,30 @@ def lda_inf():
 
 
 
+ulda='''
+    [assume doc (mem (lambda (doc_ind) (symmetric_dirichlet .01 2)))]
+    [assume topic (mem (lambda (topic_ind) (symmetric_dirichlet .01 5) ) )]
+    [assume z (mem (lambda (doc_ind word_ind) (categorical (doc doc_ind)) ) ) ]''' 
+
+v=mk_p_ripl()
+v.execute_program(ulda)
+t0a=v.predict('(topic 0)')
+t0b=v.predict('(topic 0)')
+assert t0a==t0b
+print 'Before z,(topic 0)=', t0a
+print 'rounded 2dp:', np.round(t0a,2)
+print '----','\n'
+
+z_values = [v.predict('(z 0 %i)'%word_ind) for word_ind in range(10)]
+print '(z 0 i) for i in range(10): ', z_values
+
+if v.predict('(z 0 0)')==0:
+    print '(z 0 0)=',0
+    t0c = v.predict('(topic (z 0 0))')
+    print '(topic (z 0 0))=', t0c,
+    print 'rounded 2dp:',np.round(t0c,2)
+    print '\n'
+    print '(topic 0) vs. (topic (z 0 0)):', np.round(t0a,2),np.round(t0c,2)
 
 # err = [3]*len(zipf1)
 # fig, ax = plt.subplots()
