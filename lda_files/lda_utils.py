@@ -353,8 +353,9 @@ def lda_infer(gen_params,generate_docs_out,collapse=1, no_runs = 2, steps_per_ru
     
     # create ripl (choose backend), run inference lda model
     inf_v = mk_p_ripl(); inf_v.set_seed(1)
+    if mr: inf_v = MRipl2(32)
     inf_v.execute_program(mk_lda(inf_gen_params,collapse=collapse))
-    
+
     # OBSERVES
     data_docs = generate_docs_out['data_docs']
     
@@ -366,11 +367,8 @@ def lda_infer(gen_params,generate_docs_out,collapse=1, no_runs = 2, steps_per_ru
     start_time=time.time()
     if verbose:
         print 'total_steps: ', (no_runs-1)*steps_per_run
-    
         print 'collapse' if collapse else 'uncollapsed'
-        print 'gen_params',gen_params
-        print 'inf_gen_params',inf_gen_params
-        
+        print 'gen_params',gen_params; print 'inf_gen_params',inf_gen_params
         print 'inf_no_topics',inf_no_topics
         print 'alpha_t_prior',inf_alpha_t_prior; print 'alpha_w_prior',inf_alpha_w_prior
     
@@ -381,8 +379,10 @@ def lda_infer(gen_params,generate_docs_out,collapse=1, no_runs = 2, steps_per_ru
         if verbose: print '\n\n run no.: ',run
         
         # compute comparison of inf_ripl and true params
+        
         compare_inf_out = compare_inf(inf_v,generate_docs_out,inf_no_topics,collapse=collapse,vunit=0)
-
+        
+            
         for key,val in compare_inf_out.items():
             if key.startswith('inf_ana'): 
                 pass
@@ -409,6 +409,169 @@ def lda_infer(gen_params,generate_docs_out,collapse=1, no_runs = 2, steps_per_ru
 
 
 
+def mr_lda_infer(gen_params,generate_docs_out,collapse=1, no_runs = 2, steps_per_run=10**3,verbose=False):
+      
+    # CREATE MODEL
+    # inference ripl params
+    inf_no_topics=gen_params['true_no_topics']  # NOTE: this could be set to a constant
+    inf_alpha_t_prior='(gamma 1 2)'; inf_alpha_w_prior='(gamma 1 2)'
+    
+    # modify gen_params with infer params
+    inf_gen_params = {}
+    for k,v in gen_params.items(): inf_gen_params[k] = v
+    # NB: not a fully deep copy, but works here as values are numbers and number arrays
+    inf_gen_params['true_no_topics']=inf_no_topics
+    inf_gen_params['alpha_t_prior']=inf_alpha_t_prior; inf_gen_params['alpha_w_prior']=inf_alpha_w_prior
+    
+    # create ripl (choose backend), run inference lda model
+    inf_v = mk_p_ripl(); inf_v.set_seed(1)
+    if mr: inf_v = MRipl2(32)
+    inf_v.execute_program(mk_lda(inf_gen_params,collapse=collapse))
 
+    # OBSERVES
+    data_docs = generate_docs_out['data_docs']
+    
+    for doc_ind,doc in enumerate(data_docs):
+        for word_ind in range(len(doc)):
+            inf_v.observe('(word atom<%i> %i)'%(doc_ind,word_ind),'atom<%i>'%doc[word_ind])
+    
+    # INFERS
+    start_time=time.time()
+    if verbose:
+        print 'total_steps: ', (no_runs-1)*steps_per_run
+        print 'collapse' if collapse else 'uncollapsed'
+        print 'gen_params',gen_params; print 'inf_gen_params',inf_gen_params
+        print 'inf_no_topics',inf_no_topics
+        print 'alpha_t_prior',inf_alpha_t_prior; print 'alpha_w_prior',inf_alpha_w_prior
+    
+    inf_meankl_time=[]; inf_mean_diff_time=[]
+    
+    
+    for run in range(no_runs):
+        if verbose: print '\n\n run no.: ',run
+        
+        # compute comparison of inf_ripl and true params
+        
+        compare_inf_out = compare_inf(inf_v,generate_docs_out,inf_no_topics,collapse=collapse,vunit=0)
+        
+            
+        for key,val in compare_inf_out.items():
+            if key.startswith('inf_ana'): 
+                pass
+            else:
+                if verbose: print key,np.round(val,3)
+        
+        inf_meankl_time.append(np.mean( compare_inf_out['kls']) )
+        inf_mean_diff_time.append( compare_inf_out['mean/max_diff_doc_word_hist'][0] )
+        
+        if not run==(no_runs-1): inf_v.infer(steps_per_run)
+        
+    if verbose: print 'total_time: ', time.time() - start_time    
+        
+    inf_ana_doc_word_hists = compare_inf_out['inf_ana_doc_word_hists'];
+    true_emp_doc_word_hists = generate_docs_out['true_emp_doc_word_hists']
+
+    return { 'inf_meankl_time':inf_meankl_time, 'inf_mean_diff_time':inf_mean_diff_time,
+           'inf_ana_doc_word_hists': inf_ana_doc_word_hists,
+           'true_emp_doc_word_hists': true_emp_doc_word_hists}
+
+
+
+def lda_infer(gen_params,generate_docs_out,collapse=1, no_runs = 2, steps_per_run=10**3,verbose=False):
+    mr=0;  
+    # CREATE MODEL
+    # inference ripl params
+    inf_no_topics=gen_params['true_no_topics']  # NOTE: this could be set to a constant
+    inf_alpha_t_prior='(gamma 1 2)'; inf_alpha_w_prior='(gamma 1 2)'
+    
+    # modify gen_params with infer params
+    inf_gen_params = {}
+    for k,v in gen_params.items(): inf_gen_params[k] = v
+    # NB: not a fully deep copy, but works here as values are numbers and number arrays
+    inf_gen_params['true_no_topics']=inf_no_topics
+    inf_gen_params['alpha_t_prior']=inf_alpha_t_prior; inf_gen_params['alpha_w_prior']=inf_alpha_w_prior
+    
+    # create ripl (choose backend), run inference lda model
+    inf_v = mk_p_ripl(); inf_v.set_seed(1)
+    if mr: inf_v = MRipl2(32)
+    inf_v.execute_program(mk_lda(inf_gen_params,collapse=collapse))
+
+    # OBSERVES
+    data_docs = generate_docs_out['data_docs']
+    
+    for doc_ind,doc in enumerate(data_docs):
+        for word_ind in range(len(doc)):
+            inf_v.observe('(word atom<%i> %i)'%(doc_ind,word_ind),'atom<%i>'%doc[word_ind])
+    
+    # INFERS
+    start_time=time.time()
+    if verbose:
+        print 'total_steps: ', (no_runs-1)*steps_per_run
+        print 'collapse' if collapse else 'uncollapsed'
+        print 'gen_params',gen_params; print 'inf_gen_params',inf_gen_params
+        print 'inf_no_topics',inf_no_topics
+        print 'alpha_t_prior',inf_alpha_t_prior; print 'alpha_w_prior',inf_alpha_w_prior
+    
+    inf_meankl_time=[]; inf_mean_diff_time=[]
+    
+    
+    for run in range(no_runs):
+        if verbose: print '\n\n run no.: ',run
+        
+        # compute comparison of inf_ripl and true params
+        
+        compare_inf_out = compare_inf(inf_v,generate_docs_out,inf_no_topics,collapse=collapse,vunit=0)
+        
+            
+        for key,val in compare_inf_out.items():
+            if key.startswith('inf_ana'): 
+                pass
+            else:
+                if verbose: print key,np.round(val,3)
+        
+        inf_meankl_time.append(np.mean( compare_inf_out['kls']) )
+        inf_mean_diff_time.append( compare_inf_out['mean/max_diff_doc_word_hist'][0] )
+        
+        if not run==(no_runs-1): inf_v.infer(steps_per_run)
+        
+    if verbose: print 'total_time: ', time.time() - start_time    
+        
+    inf_ana_doc_word_hists = compare_inf_out['inf_ana_doc_word_hists'];
+    true_emp_doc_word_hists = generate_docs_out['true_emp_doc_word_hists']
+
+    return { 'inf_meankl_time':inf_meankl_time, 'inf_mean_diff_time':inf_mean_diff_time,
+           'inf_ana_doc_word_hists': inf_ana_doc_word_hists,
+           'true_emp_doc_word_hists': true_emp_doc_word_hists}
+
+
+
+def sets_infer(gen_params, no_datasets=3,steps_per_run=4*10**4, no_epochs=2):
+    mean_kls = []; mean_diffs = []
+    print 'sets_infer: no_docs %i, no_datasets %i, steps_per_run=%i'%(no_docs,no_datasets,steps_per_run)
+
+    for dataset in range(no_datasets):
+                
+        generate_docs_out = generate_docs(gen_params)
+        
+        inf=lda_infer(gen_params,generate_docs_out,collapse=1,no_runs = no_epochs, steps_per_run=steps_per_run)
+        
+        mean_kls.append( inf['inf_meankl_time'][-1] )
+        mean_diffs.append( inf['inf_mean_diff_time'][-1] )
+        #print 'Dataset #%i'%dataset,'. mean kls: %.2f'%mean_kls[-1]
+        
+    print 'mean_kls:',np.round(mean_kls,2); print 'mean_diffs:',np.round(mean_diffs,3)
+    
+    print 'Mean of mean_kls: %.3f, std: %.4f, where n=%i' %(np.mean(mean_kls),np.std(mean_kls),no_datasets)
+    print 'Mean of mean_diffs: %.4f, std: %.4f, where n=%i' %(np.mean(mean_diffs),np.std(mean_diffs),no_datasets)
+    
+    #fig,ax = plt.subplots(2,1)
+    #ax[0].hist(mean_kls,color='m'); ax[1].hist(mean_diffs,color='c')
+    print 'end sets_infer ------------------------'
+    return mean_kls,mean_diffs
+
+no_docs=5, doc_length=30
+gen_params={'true_no_topics':4, 'size_vocab':40,
+                'no_docs':no_docs, 'doc_length':doc_length, 
+                'alpha_t_prior':'.2', 'alpha_w_prior':'.2'}
 
 
