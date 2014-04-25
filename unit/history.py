@@ -27,6 +27,7 @@ typically also tracked."""
         self.label = label # :: string
         self.parameters = parameters # :: {string: a}  the model parameters leading to the data stored here
         self.nameToSeries = {} # :: {string: [Series]} the list is over multiple runs
+        self.data = []
 
     def addSeries(self, name, label, values, hist=True):
         self._addSeries(name, Series(label, values, hist))
@@ -40,6 +41,10 @@ typically also tracked."""
         assert run.parameters == self.parameters # Require compatible metadata
         for (name, series) in run.namedSeries.iteritems():
             self._addSeries(name, series)
+    
+    def addData(self, data):
+        'Data are pairs (exp,datum)' 
+        self.data.append(data)
 
     # Returns the average over all series with the given name.
     def averageValue(self, seriesName):

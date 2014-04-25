@@ -1,17 +1,41 @@
-# Copyright (c) 2013, MIT Probabilistic Computing Project.
-
 import time
 import random
 import numpy as np
 from venture.ripl.ripl import _strip_types
 from venture.venturemagics.ip_parallel import *
-
+from venture.shortcuts import make_puma_church_prime_ripl
 from history import History, Run, Series
 
+## FIXME eliminatino
+execfile('~/myunit/unit/history.py')
+
+## TODO
+# when we generate data from prior, want to store both 
+# the data, all assumes symbols and all query_exps. (and if we plot it, it should be 
+# indicated as the true value). verbose should give print out
+# 
+
+# add method to history: nameValues (gives all values)
+# add method to history: nameSnapshot (gives snapshot at end of inference)
+# for mripl, need good snaphshot overtime plots (bayesDB?)
+
+# add method for viewing observes and expressions.
+# write quickAnalytics for ip_para. fixing seeds, should
+# be able to compare when everything made det.
+# check for predict/forget vs. sample 
+# cook/rubin trivial if we have test#2. just throw true
+# expression vals into samples, sort for quantile. then
+# plot all quantile vals vs. uniform. 
+
+# plots: can't plot 100 runs. need to select some. should 
+# if you have enough runs (so variance in your estimates
+# of the within and between chain variances is low), can annotate at probe points
+# with gelman-rubin variances. 
 
 
 def directive_split(d):
-    ## FIXME: replace symbols
+    'Splits directive in list_directives form to components'
+    ## FIXME: replace symbols, calls build_exp from ip_para
     if d['instruction']=='assume':
         return (d['symbol'], build_exp(d['expression']) ) 
     elif d['instruction']=='observe':
@@ -19,17 +43,15 @@ def directive_split(d):
     elif d['instruction']=='predict':
         return build_exp(d['expression'])
 
-
-
-
 # whether to record a value returned from the ripl
 def record(value):
     return value['type'] in {'boolean', 'real', 'number', 'atom', 'count', 'array', 'simplex'}
 
 parseValue = _strip_types
 
-# VentureUnit is an experimental harness for developing, debugging and profiling Venture programs.
-class Analytics(object):
+class VentureUnit(object):
+    '''class BatchExperiment, for running analytics on all parameter
+    settings specified by a parameter dict'''
     ripl = None
     parameters = {}
     assumes = []
@@ -53,12 +75,65 @@ class Analytics(object):
     def clear(self):
         self.assumes = []
         self.observes = []
-    
+
     # Initializes parameters, generates the model, and prepares the ripl.
-    def __init__(self, ripl, parameters=None, queryExps=None):
+    def __init__(self, ripl, parameters=None):
         if parameters is None: parameters = {}
         self.ripl = ripl
 
+        # FIXME: Should the random seed be stored, or re-initialized?
+        self.parameters = parameters.copy()
+        if 'venture_random_seed' not in self.parameters:
+            self.parameters['venture_random_seed'] = self.ripl.get_seed()
+        else:
+            self.ripl.set_seed(self.parameters['venture_random_seed'])
+
+        # FIXME: automatically assume parameters (and omit them from history)?
+        self.assumes = []
+        self.makeAssumes()
+
+        self.observes = []
+        self.makeObserves()
+
+        self.kwargs = {'ripl':self.ripl, 'assumes':self.assumes,'observes':self.observes,
+                        'parameters':self.parameters}
+
+    def nameObserve(self,index):
+        pass
+
+    def sampleFromJoint(self,*args,**kwargs):
+        a = Analytics(**self.kwargs)
+        return a.sampleFromJoint(*args,**kwargs)
+
+    def runFromJoint(self,*args,**kwargs):
+        a = Analytics(**self.kwargs)
+        return a.runFromJoint(*args,**kwargs)
+    
+    def computeJointKL(self,*args,**kwargs):
+        a = Analytics(**self.kwargs)
+        return a.computeJointKL(*args,**kwargs)
+
+    def runFromConditional(self, *args, **kwargs):
+        a = Analytics(**self.kwargs)
+        return a.runFromConditional(*args,**kwargs)
+
+    def runConditionedFromPrior(self, *args, **kwargs):
+        a = Analytics(ripl=self.ripl,assumes=self.assumes,observes=self.observes,
+                        parameters=self.parameters)
+        return a.runConditionedFromPrior(*args,**kwargs)
+
+
+class Analytics(object):
+
+    # Initializes parameters, generates the model, and prepares the ripl.
+    def __init__(self, ripl=None, assumes=None, observes=None,
+                 parameters=None, queryExps=None):
+
+        self.ripl = ripl if ripl else make_puma_church_prime_ripl()
+        if assumes: self.ripl.clear()
+
+        if parameters is None: parameters = {}
+        
         # FIXME: Should the random seed be stored, or re-initialized?
         self.parameters = parameters.copy()
         if 'venture_random_seed' not in self.parameters:
@@ -67,32 +142,38 @@ class Analytics(object):
         else:
             self.ripl.set_seed(self.parameters['venture_random_seed'])
 
-
         # FIXME: automatically assume parameters (and omit them from history)?
-
-        di_list = self.ripl.list_directives()
-        assumes = [di for di in di_list if di['instruction']=='assume']
-        self.assumes = map(directive_split,assumes)
-        self.makeAssumes()
-
-        observes = [di for di in di_list if di['instruction']=='observe']
-        self.observes = map(directive_split,observes)
-        self.makeObserves()
-
+        
+        if assumes:
+            self.assumes = assumes
+        else:
+            di_list = self.ripl.list_directives()
+            assumes = [di for di in di_list if di['instruction']=='assume']
+            self.assumes = map(directive_split,assumes)
+        
+        if observes:
+            self.observes = observes
+        else:
+            di_list = self.ripl.list_directives()
+            observes = [di for di in di_list if di['instruction']=='observe']
+            self.observes = map(directive_split,observes)
+        
 
         if queryExps is None: queryExps = []
         self.queryExps = queryExps
 
 
-    def updateObserves(self,new_observes):
-        self.observes.extend( map(directive_split,new_observes) )
+    def updateObserves(self,newObserves=[],removeAllObserves=None):
+        if removeAllObserves:
+            self.observes = []
+        self.observes.extend(newObserves)
+        #self.observes.extend( map(directive_split,newObserves) )
         
-    def removeObserves(self, slice_range):
-        self.observes = self.observes[slice_range[0]:slice_range[1]]
-
+    def updateQueryExps(self,newQueryExps=[],removeAllQueryExps=None):
+        if removeAllQueryExps:
+            self.queryExps = []
+        self.queryExps.extend( newQueryExps )
     
-
-
 
     def _loadAssumes(self, prune=True):
         
@@ -139,6 +220,7 @@ class Analytics(object):
         return predictToDirective
 
     def _loadObserves(self, data=None):
+        'If not data, then use observes'
         for (index, (expression, literal)) in enumerate(self.observes):
             datum = literal if data is None else data[index]
             self.ripl.observe(expression, datum)
@@ -159,6 +241,7 @@ class Analytics(object):
     def updateValues(self, keyedValues, keyToDirective):
         for (key, values) in keyedValues.items():
 
+            ##FIXME, hack
             if keyToDirective=='query':
                 value = self.ripl.sample(key,type=True)
             else:
@@ -282,6 +365,7 @@ class Analytics(object):
 
         assumedValues = {symbol : [] for symbol in assumeToDirective}
         predictedValues = {index: [] for index in predictToDirective}
+        
         queryExpsValues = {exp: [] for exp in self.queryExps}
 
         sweepTimes = []
@@ -318,46 +402,45 @@ class Analytics(object):
             answer.addSeries(self.nameObserve(index), Series(label, map(parseValue, values)))
 
         for (exp, values) in queryExpsValues.iteritems():
-            answer.addSeries(exp, 'i.i.d.', map(parseValue, values))
+            answer.addSeries(exp, Series(label, map(parseValue, values)))
 
         return answer
 
-    # Computes the KL divergence on i.i.d. samples from the prior and inference on the joint.
-    # Returns the sampled history, inferred history, and history of KL divergences.
-    def computeJointKL(self, sweeps, samples, track=5, runs=3, verbose=False, name=None, infer=None):
-        sampledHistory = self.sampleFromJoint(samples, track, verbose, name=name)
-        inferredHistory = self.runFromJoint(sweeps, track=track, runs=runs, verbose=verbose, name=name, infer=infer)
-
-        tag = 'kl_divergence' if name is None else name + '_kl_divergence'
-        klHistory = History(tag, self.parameters)
-
-        for (name, seriesList) in inferredHistory.nameToSeries.iteritems():
-            if name not in sampledHistory.nameToSeries: continue
-
-            for inferredSeries in seriesList:
-                sampledSeries = sampledHistory.nameToSeries[name][0]
-
-                klValues = [computeKL(sampledSeries.values, inferredSeries.values[:index+1]) for index in range(sweeps)]
-
-                klHistory.addSeries('KL_' + name, inferredSeries.label, klValues, hist=False)
-
-        return (sampledHistory, inferredHistory, klHistory)
 
     # Runs inference on the model conditioned on observed data.
     # By default the data is as given in makeObserves(parameters).
-    def runFromConditional(self, sweeps, name=None, **kwargs):
+    def runFromConditional(self, sweeps, name=None,data=None, **kwargs):
         tag = 'run_from_conditional' if name is None else name + '_run_from_conditional'
-        return self._runRepeatedly(self.runFromConditionalOnce, tag, sweeps=sweeps, **kwargs)
+        
+        history = self._runRepeatedly(self.runFromConditionalOnce,
+                                      tag, data=data, sweeps=sweeps, **kwargs)
+        if data:
+            data = [(exp,datum) for (exp,_),datum in zip(self.observes,data)]
+        else:
+            data = self.observes
+        history.addData(data)
+
+        return history
   
     def runFromConditionalOnce(self, data=None, **kwargs):
         self.ripl.clear()
         assumeToDirective = self._loadAssumes()
         self._loadObserves(data)
+
+        print 'runFCO data:', data
+        
+        # note: we loadObserves, but predictToDirective arg = {}
+        # so we are not collecting sample of the observes here. 
         return self._collectSamples(assumeToDirective, {}, **kwargs)
 
     # Run inference conditioned on data generated from the prior.
     def runConditionedFromPrior(self, sweeps, verbose=False, **kwargs):
+        
         (data, prior_run) = self.generateDataFromPrior(sweeps, verbose=verbose)
+
+        print 'rCFP zip(self.observes,data):',zip(self.observes,data)
+
+        
         history = self.runFromConditional(sweeps, data=data, verbose=verbose, **kwargs)
         history.addRun(prior_run)
         history.label = 'run_conditioned_from_prior'
@@ -385,6 +468,33 @@ class Analytics(object):
         for (symbol, value) in assumedValues.iteritems():
             prior_run.addSeries(symbol, Series('prior', [parseValue(value)]*sweeps))
         return (data, prior_run)
+
+
+
+
+    # Computes the KL divergence on i.i.d. samples from the prior and inference on the joint.
+    # Returns the sampled history, inferred history, and history of KL divergences.
+    def computeJointKL(self, sweeps, samples, track=5, runs=3, verbose=False, name=None, infer=None):
+        sampledHistory = self.sampleFromJoint(samples, track, verbose, name=name)
+        inferredHistory = self.runFromJoint(sweeps, track=track, runs=runs, verbose=verbose, name=name, infer=infer)
+
+        tag = 'kl_divergence' if name is None else name + '_kl_divergence'
+        klHistory = History(tag, self.parameters)
+
+        for (name, seriesList) in inferredHistory.nameToSeries.iteritems():
+            if name not in sampledHistory.nameToSeries: continue
+
+            for inferredSeries in seriesList:
+                sampledSeries = sampledHistory.nameToSeries[name][0]
+
+                klValues = [computeKL(sampledSeries.values, inferredSeries.values[:index+1]) for index in range(sweeps)]
+
+                klHistory.addSeries('KL_' + name, inferredSeries.label, klValues, hist=False)
+
+        return (sampledHistory, inferredHistory, klHistory)
+
+
+
 
 # Reads the profile data from the ripl.
 # Returns a map from (random choice) addresses to info objects.
