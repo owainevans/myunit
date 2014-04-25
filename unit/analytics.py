@@ -7,7 +7,7 @@ from venture.shortcuts import make_puma_church_prime_ripl
 from history import History, Run, Series
 
 ## FIXME eliminatino
-execfile('~/myunit/unit/history.py')
+execfile('/home/owainevans/myunit/unit/history.py')
 
 ## TODO
 # when we generate data from prior, want to store both 
@@ -414,7 +414,10 @@ class Analytics(object):
         
         history = self._runRepeatedly(self.runFromConditionalOnce,
                                       tag, data=data, sweeps=sweeps, **kwargs)
+
         if data:
+            ## FIXME this branch has types, other one doesn't
+            # FIXME: maybe data should carry around exp from its inception
             data = [(exp,datum) for (exp,_),datum in zip(self.observes,data)]
         else:
             data = self.observes
@@ -433,16 +436,38 @@ class Analytics(object):
         # so we are not collecting sample of the observes here. 
         return self._collectSamples(assumeToDirective, {}, **kwargs)
 
+    
+    def testFromPrior(self,no_datasets,sweeps,verbose=False,**kwargs):
+        # we don't need sweeps for generateDataFromPrior, because
+        # sweeps are given just for plotting the data on time series
+
+        # FIXME this method will block certain types of data via *record*
+        typed_datasets = [self.generateDataFromPrior(1)[0] for reps in range(no_datasets)]
+        datasets = [[datum['value'] for datum in dataset] for dataset in typed_datasets]
+        
+        histories = []
+        parameters = {'venture_random_seed': 0} # FIXME: Lite compatible
+
+        # problem that the seed does not appear to fix the initial state
+        # of the chain. one thing to do is get the ripl to print it's state
+        # and see where the states diverge and whether we can intervene there
+        for i,dataset in enumerate(datasets):
+            observes = [(exp,datum) for (exp,_),datum in zip(self.observes,dataset)]
+            a = Analytics( ripl=make_puma_church_prime_ripl(),
+                           assumes=self.assumes, observes=observes,
+                           queryExps=self.queryExps, parameters=parameters )
+
+            histories.append(a.runFromConditional( sweeps,runs=1, **kwargs))
+        return histories
+
     # Run inference conditioned on data generated from the prior.
     def runConditionedFromPrior(self, sweeps, verbose=False, **kwargs):
         
-        (data, prior_run) = self.generateDataFromPrior(sweeps, verbose=verbose)
-
-        print 'rCFP zip(self.observes,data):',zip(self.observes,data)
-
+        (data, prior_run, groundTruth) = self.generateDataFromPrior(sweeps, verbose=verbose)
         
         history = self.runFromConditional(sweeps, data=data, verbose=verbose, **kwargs)
         history.addRun(prior_run)
+        history.addGroundTruth(groundTruth)
         history.label = 'run_conditioned_from_prior'
         return history
 
@@ -463,11 +488,25 @@ class Analytics(object):
             value = self.ripl.report(directive, type=True)
             if record(value):
                 assumedValues[symbol] = value
+        
+        ## FIXME reduce repetition
+        queryExpsValues = {}
+        for exp in self.queryExps:
+            value = self.ripl.sample(exp,type=True)
+            if record(value):
+                queryExpsValues[exp] = value
+                
         logscore = self.ripl.get_global_logscore()
         prior_run.addSeries('logscore', Series('prior', [logscore]*sweeps, hist=False))
         for (symbol, value) in assumedValues.iteritems():
             prior_run.addSeries(symbol, Series('prior', [parseValue(value)]*sweeps))
-        return (data, prior_run)
+        for (exp,value) in queryExpsValues.iteritems():
+            prior_run.addSeries(exp, Series('prior', [parseValue(value)]*sweeps))
+        
+        
+        groundTruth = (assumedValues,queryExpsValues)
+
+        return (data, prior_run, groundTruth)
 
 
 

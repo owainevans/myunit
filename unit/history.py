@@ -27,7 +27,10 @@ typically also tracked."""
         self.label = label # :: string
         self.parameters = parameters # :: {string: a}  the model parameters leading to the data stored here
         self.nameToSeries = {} # :: {string: [Series]} the list is over multiple runs
-        self.data = []
+        self.data = [] ## FIXME: have no attribute if empty
+        
+
+        
 
     def addSeries(self, name, label, values, hist=True):
         self._addSeries(name, Series(label, values, hist))
@@ -45,6 +48,9 @@ typically also tracked."""
     def addData(self, data):
         'Data are pairs (exp,datum)' 
         self.data.append(data)
+
+    def addGroundTruth(self,groundTruth):
+        self.groundTruth = groundTruth
 
     # Returns the average over all series with the given name.
     def averageValue(self, seriesName):
