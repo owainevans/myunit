@@ -181,10 +181,12 @@ def condition_prior_sample(r,model,no_datasets,list_observes,no_transitions,quer
         [r.observe(exp,r.sample(exp)) for exp in observes]
         r.infer(no_transitions)
         [lst.append(r.sample(exp)) for exp,lst in exp_vals.items()]
-        
+        r.forget(all_observes(r))
+
     return exp_vals
 
 
+mr_map_proc(mripl,condition_prior_sample,model,no_datasets,observes,no_transitions,query_exps)
 
 
 def condition_prior_fail(r,model,no_datasets,observes,no_transitions,
