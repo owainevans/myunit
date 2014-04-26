@@ -1,5 +1,6 @@
 from venture.venturemagics.ip_parallel import *
 from venture.venturemagics.reg_demo_utils import *
+from scipy.stats import probplot
 
 def qq_plot(s1,s2,label1,label2):
     fig,ax = plt.subplots(figsize=(3,3))
@@ -19,8 +20,8 @@ def qq_plot_all(dict1,dict2,label1,label2):
         s1,s2 = (dict1[exp],dict2[exp])
         assert len(s1)==len(s2)
 
-        ax[i,0].hist(s1,bins=20,alpha=0.6,color='b',label=label1)
-        ax[i,0].hist(s2,bins=20,alpha=0.2,color='y',label=label2)
+        ax[i,0].hist(s1,bins=20,alpha=0.7,color='b',label=label1)
+        ax[i,0].hist(s2,bins=20,alpha=0.4,color='y',label=label2)
         ax[i,0].legend()
         ax[i,0].set_title('Hists: %s'%exp)
 
@@ -40,46 +41,89 @@ def forget_all_observes(ripl):
     for di in ripl.list_directives():
         if di['instruction']=='observe': ripl.forget(di['directive_id'])
     
+def defaultSweep(assumes,infer_prog=None):
+    return int(1+(1.5*len(assumes)))
+    
+def makeNameToSeries(assumes,queryExps,queryAssumes):
+    if queryExps is None:
+        queryExps = []
+    nameToSeries = {exp:[] for exp in queryExps}
+    if queryAssumes: nameToSeries.update( {exp:[] for exp,_ in assumes} )
+    return nameToSeries
+    
 def geweke(ripl,assumes,observes,totalSamples,queryExps=None,
-           stepSize=None,seed=1,queryAssumes=True,observeToPredict=False):
-
+           stepSize=None,queryAssumes=True,observeToPredict=False):
+    '''Geweke 2004 test. Sample values for *observes* from current
+    ripl state, observe them, infer(*stepSize*), then forget observes.
+    Repeat for totalSamples. Determine ripl seed and backend via *ripl*.'''
+    
     if stepSize is None:
-        stepSize = int(1+(1.5*len(assumes))) # rough version of sweep
-    # load model on ripl
-    ripl.clear()
-    ripl.set_seed(seed)
+        stepSize = defaultSweep(assumes) # rough version of sweep
+
     [ripl.assume(sym,exp) for sym,exp in assumes]
     
     if len(observes[0])==2: # not observes=[exp1,...,]
         observes = [exp for exp,literal in observes]
     
-    if queryExps is None:
-        queryExps = []
-    expValues = {exp:[] for exp in queryExps}
-    if queryAssumes: expValues.update( {exp:[] for exp,_ in assumes} )
-
+    nameToSeries = makeNameToSeries(assumes,queryExps,queryAssumes)
+    
     for sample in range(totalSamples):
+        [series.append(ripl.sample(exp)) for exp,series in nameToSeries.items()]
         if not observeToPredict:
             [ripl.observe(exp, ripl.sample(exp)) for exp in observes]
         else:
             [ripl.predict(exp) for exp in observes]
         ripl.infer(stepSize)
-        [series.append(ripl.sample(exp)) for exp,series in expValues.iteritems()]
         forget_all_observes(ripl)
+        # queryExps not recorded after final infer
             
-    return expValues
+    return nameToSeries
 
 
-def testGeweke(totalSamples = 400):
+def runFromConditional(ripl,assumes,observes,totalSamples,queryExps=None,
+                       stepSize=None, queryAssumes=True):
+
+    assert all([len(obs)==2 for obs in observes])
+    
+    if stepSize is None:
+        stepSize = defaultSweep(assumes) # rough version of sweep
+
+    [ripl.assume(sym,exp) for sym,exp in assumes]
+    [ripl.observe(exp,literal) for exp,literal in observes]
+    
+    nameToSeries = makeNameToSeries(assumes,queryExps,queryAssumes)
+    
+    for sample in range(totalSamples):
+        [series.append(ripl.sample(exp)) for exp,series in nameToSeries.items()]
+        ripl.infer(stepSize) # queryExps not recorded after final infer
+
+    return nameToSeries,ripl
+
+
+def testRFC(totalSamples,poisson=False):
     ripl=mk_p_ripl()
     assumes=[('mu','(normal 0 1)')]
-    observes=[('(normal mu .1)','.5')]
-    expValues = geweke(ripl,assumes,observes,totalSamples,stepSize=5)
-    assert .2 > abs(np.mean(expValues['mu']))
-    assert .8 > abs(np.std(expValues['mu'])-1)
-    return expValues
+    observes=[('(normal mu .1)','.5')]*5
+    queryExps=['(normal mu .2)']
+    if poisson:
+        assumes=[('mu','(poisson 30)')]
+        observes=[('(normal mu 1)','20')]*5
+    nameToSeries,_ = runFromConditional(ripl,assumes,observes,
+                                        totalSamples,queryExps=queryExps,
+                                        stepSize=5)
+    mean=np.mean(nameToSeries['mu'])
+    std=abs(np.std(nameToSeries['mu']))
+    print 'testRFC: poisson=%s'%poisson
+    print 'assumes=%s, observes=%s'%(str(assumes),str(observes))
+    print 'infer mu (mean,var): ',mean,std
     
+    return nameToSeries
+
+def mrRFC():
+    pass
+  
     
+
 
 
 def compareDataSimulation(ripl,assumes,observes,transitions,samples_per_observe):
@@ -89,25 +133,7 @@ def compareDataSimulation(ripl,assumes,observes,transitions,samples_per_observe)
     #for exp in observes:
     pass    
 
-def runConditionedPrior(ripl,assumes,observes,query_exp,transitions,stepsize=None):
-    'for this we also want time series info to look at variances'
-    nameToSeries = {exp:[] for exp in query_exp}
-    if not stepsize:
-        stepsize = len(assumes)
-    
-    data=[ripl.sample(exp) for exp in observes]
-    ripl.clear()
-    ripl.set_seed(1)  # does this always make all initial vals the same?
-    [ripl.assume(sym,exp) for sym,exp in assumes]
-    [ripl.observe(exp,val) for exp,val in zip(observes,data)]
-    
-    for step in range(0,transitions,stepsize):
-        # note: we record the first values, which should be same across all ripls
-        ## FIXME: is feature that values only change with infer a fixed feature?
-        [nameToSeries[exp].append(ripl.sample(exp)) for exp in nameToSeries.iteritems()]
-        ripl.infer(transitions,step)
-        
-    return nameToSeries
+
 
 
 def mrRCP(no_ripls,*args,**kwargs):
@@ -173,7 +199,32 @@ def prepare_tests(directives_string):
     model,observes = extract_directives(directives_string)
 
 
-    
+def testGeweke(totalSamples = 400, plot=False,
+               observeToPredict=False, poisson=False):
+    ripl=mk_p_ripl()
+    assumes=[('mu','(normal 0 1)')]
+    observes=[('(normal mu .1)','.5')]
+    if poisson:
+        assumes=[('mu','(poisson 30)')]
+        observes=[('(normal mu 1)','6')]
+    nameToSeries = geweke(ripl,assumes,observes,totalSamples,stepSize=5,
+                       observeToPredict=observeToPredict)
+    mean=np.mean(nameToSeries['mu'])
+    std=abs(np.std(nameToSeries['mu']))
+    print 'testGeweke: observeToPredict=%s'%observeToPredict
+    print 'mu=(normal 0 1), infer mu: (mean,std)=', mean, std
+    #assert .8 > abs(mean) and .8 > abs(std-1)
+    if plot:
+        dict2={'mu':np.random.normal(0,1,totalSamples)}
+        label2='np.random.normal(0,1)'
+        if poisson:
+            dict2={'mu':np.random.poisson(30,totalSamples)}
+            label2='np.random.poisson(30)'
+        qq_plot_all(nameToSeries,dict2,'Geweke',label2)
+        plt.figure()
+        probplot(nameToSeries['mu'],dist='norm',plot=plt)
+        plt.show()
+    return nameToSeries
 
 
 
