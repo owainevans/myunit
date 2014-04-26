@@ -10,8 +10,10 @@ def qq_plot(s1,s2,label1,label2):
 def qq_plot_all(dict1,dict2,label1,label2):
     ## http://people.reed.edu/~jones/Courses/P14.pdf
     # generally: need to do interpolation where samples mismatched
-    no_exps = len(dict1.keys())
-    fig,ax = plt.subplots(no_exps,2,figsize=(8.5,3*no_exps))
+    assert len(dict1)==len(dict2)
+    no_exps = len(dict1)
+    subplot_rows = max(no_exps,2)
+    fig,ax = plt.subplots(subplot_rows,2,figsize=(8.5,3*no_exps))
     
     for i,exp in enumerate(dict1.keys()):
         s1,s2 = (dict1[exp],dict2[exp])
@@ -23,11 +25,13 @@ def qq_plot_all(dict1,dict2,label1,label2):
         ax[i,0].set_title('Hists: %s'%exp)
 
         ax[i,1].scatter(sorted(s1),sorted(s2),s=4,lw=0)
-        ax[i,1].set_xlabel(label1); ax[i,1].set_ylabel(label2)
+        ax[i,1].set_xlabel(label1)
+        ax[i,1].set_ylabel(label2)
         ax[i,1].set_title('QQ Plot %s'%exp)
 
         xr = np.linspace(min(s1),max(s1),30)
         ax[i,1].plot(xr,xr)
+
     fig.tight_layout()
     return fig
 
@@ -36,33 +40,84 @@ def forget_all_observes(ripl):
     for di in ripl.list_directives():
         if di['instruction']=='observe': ripl.forget(di['directive_id'])
     
+def geweke(ripl,assumes,observes,totalSamples,queryExps=None,
+           stepSize=None,seed=1,queryAssumes=True,observeToPredict=False):
 
-def geweke(r,model,observes,step_size,total_samples,query_exps):
-    'observes=[exp,...]. we dont currently record all assumes'
+    if stepSize is None:
+        stepSize = int(1+(1.5*len(assumes))) # rough version of sweep
+    # load model on ripl
+    ripl.clear()
+    ripl.set_seed(seed)
+    [ripl.assume(sym,exp) for sym,exp in assumes]
     
-    exp_vals = {exp:[] for exp in query_exps}
-    r.execute_program(model)
+    if len(observes[0])==2: # not observes=[exp1,...,]
+        observes = [exp for exp,literal in observes]
     
-    for sample in range(total_samples):
-        data=[r.predict(obs,label='test'+str(i)) for i,obs in enumerate(observes)]
-        [r.forget('test'+str(i)) for i,obs in enumerate(observes)]
-        [r.observe(obs,data[i],label='test'+str(i)) for i,obs in enumerate(observes)]
-        r.infer(step_size)
-        [lst.append(r.sample(exp)) for exp,lst in exp_vals.items()]
-        [r.forget('test'+str(i)) for i,obs in enumerate(observes)]
+    if queryExps is None:
+        queryExps = []
+    expValues = {exp:[] for exp in queryExps}
+    if queryAssumes: expValues.update( {exp:[] for exp,_ in assumes} )
 
-    for sample in range(total_samples):
-        [r.observe(exp,r.sample(exp)) for exp in observes]
-        r.infer(step_size)
-        [lst.append(r.sample(exp)) for exp,lst in exp_vals.items()]
-        forget_all_observes(r)
-    
-    return exp_vals
+    for sample in range(totalSamples):
+        if not observeToPredict:
+            [ripl.observe(exp, ripl.sample(exp)) for exp in observes]
+        else:
+            [ripl.predict(exp) for exp in observes]
+        ripl.infer(stepSize)
+        [series.append(ripl.sample(exp)) for exp,series in expValues.iteritems()]
+        forget_all_observes(ripl)
+            
+    return expValues
 
 
-def condition_prior(r,model,no_datasets,observes,no_transitions,query_exps):
+def testGeweke(totalSamples = 400):
+    ripl=mk_p_ripl()
+    assumes=[('mu','(normal 0 1)')]
+    observes=[('(normal mu .1)','.5')]
+    expValues = geweke(ripl,assumes,observes,totalSamples,stepSize=5)
+    assert .2 > abs(np.mean(expValues['mu']))
+    assert .8 > abs(np.std(expValues['mu'])-1)
+    return expValues
     
-    exp_vals = {exp:[] for exp in query_exps}
+    
+
+
+def compareDataSimulation(ripl,assumes,observes,transitions,samples_per_observe):
+    # run inference
+    ripl.infer(transitions)
+    #observe_simulations = 
+    #for exp in observes:
+    pass    
+
+def runConditionedPrior(ripl,assumes,observes,query_exp,transitions,stepsize=None):
+    'for this we also want time series info to look at variances'
+    nameToSeries = {exp:[] for exp in query_exp}
+    if not stepsize:
+        stepsize = len(assumes)
+    
+    data=[ripl.sample(exp) for exp in observes]
+    ripl.clear()
+    ripl.set_seed(1)  # does this always make all initial vals the same?
+    [ripl.assume(sym,exp) for sym,exp in assumes]
+    [ripl.observe(exp,val) for exp,val in zip(observes,data)]
+    
+    for step in range(0,transitions,stepsize):
+        # note: we record the first values, which should be same across all ripls
+        ## FIXME: is feature that values only change with infer a fixed feature?
+        [nameToSeries[exp].append(ripl.sample(exp)) for exp in nameToSeries.iteritems()]
+        ripl.infer(transitions,step)
+        
+    return nameToSeries
+
+
+def mrRCP(no_ripls,*args,**kwargs):
+     out = mr_
+
+
+
+def condition_prior(r,model,no_datasets,observes,no_transitions,queryExps):
+    
+    exp_vals = {exp:[] for exp in queryExps}
     r.execute_program(model)
     
     for dataset in range(no_datasets):
@@ -78,21 +133,21 @@ def condition_prior(r,model,no_datasets,observes,no_transitions,query_exps):
 
 
 def mr_condition_prior(no_ripls, no_datasets, model,
-                       observes, query_exps, no_transitions,**mrkwargs):
+                       observes, queryExps, no_transitions,**mrkwargs):
     v=MRipl(no_ripls,**mrkwargs)
     all_out = mr_map_proc(v,no_ripls,condition_prior,
                           model,no_datasets,observes,
-                          no_transitions,query_exps)
+                          no_transitions,queryExps)
  
-    store_exp_vals={exp:[] for exp in query_exps}        
-    [store_exp_vals[exp].extend(ripl_out[exp]) for exp in query_exps for ripl_out in all_out]
+    store_exp_vals={exp:[] for exp in queryExps}        
+    [store_exp_vals[exp].extend(ripl_out[exp]) for exp in queryExps for ripl_out in all_out]
     return store_exp_vals
 
 
-def mr_forward_sample(no_samples,model,query_exps,**mrkwargs):
+def mr_forward_sample(no_samples,model,queryExps,**mrkwargs):
     mr = MRipl(no_samples,**mrkwargs)
     mr.execute_program(model)
-    return {exp:mr.sample(exp) for exp in query_exps}
+    return {exp:mr.sample(exp) for exp in queryExps}
 
 
 def compare_stats(list_dicts,list_labels=None):
@@ -132,24 +187,24 @@ if quad:
     model=simple_quadratic_model #x_model_t+quad_fourier_model
     gen_data_exp = '(y_x (x_d))'
     observes = [gen_data_exp] * size_data
-    query_exps = ['w0','w1','w2','noise']
+    queryExps = ['w0','w1','w2','noise']
     no_transitions=80
     mrkwargs={'backend':'puma', 'local_mode':True, 'no_local_ripls':no_ripls}
 
     # from inference
     store_exp_vals_inf = mr_condition_prior(no_ripls,no_datasets,model,
-                                            observes,query_exps,no_transitions,
+                                            observes,queryExps,no_transitions,
                                             **mrkwargs)
     # from prior
     no_samples = no_ripls * no_datasets
     mrkwargs={'backend':'puma', 'local_mode':True, 'no_local_ripls':no_samples}
-    store_exp_vals_prior = mr_forward_sample(no_samples,model,query_exps,**mrkwargs)
+    store_exp_vals_prior = mr_forward_sample(no_samples,model,queryExps,**mrkwargs)
 
     # from geweke
     total_samples = no_ripls * no_datasets
     step_size=1
     store_exp_vals_geweke = geweke(mk_p_ripl(),model,observes,
-                                   step_size,total_samples,query_exps)
+                                   step_size,total_samples,queryExps)
 
     assert len(store_exp_vals_inf['w0'])==len(store_exp_vals_prior['w0'])
     assert len(store_exp_vals_geweke['w0'])==len(store_exp_vals_prior['w0'])
@@ -184,6 +239,31 @@ if quad:
 
 
 ## OLD
+
+def geweke_predict(r,model,observes,step_size,total_samples,queryExps,use_sample=False):
+    'observes=[exp,...]. we dont currently record all assumes'
+    
+    exp_vals = {exp:[] for exp in queryExps}
+    r.execute_program(model)
+    
+    for sample in range(total_samples):
+        data=[r.predict(obs,label='test'+str(i)) for i,obs in enumerate(observes)]
+        [r.forget('test'+str(i)) for i,obs in enumerate(observes)]
+        [r.observe(obs,data[i],label='test'+str(i)) for i,obs in enumerate(observes)]
+        r.infer(step_size)
+        [lst.append(r.sample(exp)) for exp,lst in exp_vals.items()]
+        [r.forget('test'+str(i)) for i,obs in enumerate(observes)]
+
+    if use_sample:
+        for sample in range(total_samples):
+            [r.observe(exp,r.sample(exp)) for exp in observes]
+            r.infer(step_size)
+            [lst.append(r.sample(exp)) for exp,lst in exp_vals.items()]
+            forget_all_observes(r)
+    
+    return exp_vals
+
+
 
 def geweke_sample(r,model,observes,step_size,total_samples,query_exps):
     exp_vals = {exp:[] for exp in query_exps}
