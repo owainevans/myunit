@@ -1,28 +1,45 @@
 from venture.venturemagics.ip_parallel import *
 from venture.venturemagics.reg_demo_utils import *
 
-def pp_plot(s1,s2,label1,label2):
+def qq_plot(s1,s2,label1,label2):
     fig,ax = plt.subplots(figsize=(3,3))
     ax.scatter(sorted(s1),sorted(s2),s=4,lw=0)
     ax.set_xlabel(label1); ax.set_ylabel(label2)
     ax.set_title('PP Plot')
 
-def pp_plot_all(dict1,dict2,label1,label2):
+def qq_plot_all(dict1,dict2,label1,label2):
+    ## http://people.reed.edu/~jones/Courses/P14.pdf
+    # generally: need to do interpolation where samples mismatched
     no_exps = len(dict1.keys())
-    fig,ax = plt.subplots(int(np.ceil(no_exps/2.)),2,figsize=(8.5,3*no_exps))
+    fig,ax = plt.subplots(no_exps,2,figsize=(8.5,3*no_exps))
+    
     for i,exp in enumerate(dict1.keys()):
         s1,s2 = (dict1[exp],dict2[exp])
-        ax[i].scatter(sorted(s1),sorted(s2),s=4,lw=0)
-        ax[i].set_xlabel(label1); ax[i].set_ylabel(label2)
-        ax[i].set_title('PP Plot %s'%exp)
+        assert len(s1)==len(s2)
+
+        ax[i,0].hist(s1,bins=20,alpha=0.6,color='b',label=label1)
+        ax[i,0].hist(s2,bins=20,alpha=0.2,color='y',label=label2)
+        ax[i,0].legend()
+        ax[i,0].set_title('Hists: %s'%exp)
+
+        ax[i,1].scatter(sorted(s1),sorted(s2),s=4,lw=0)
+        ax[i,1].set_xlabel(label1); ax[i,1].set_ylabel(label2)
+        ax[i,1].set_title('QQ Plot %s'%exp)
 
         xr = np.linspace(min(s1),max(s1),30)
-        ax[i].plot(xr,xr)
+        ax[i,1].plot(xr,xr)
     fig.tight_layout()
     return fig
 
 
+def forget_all_observes(ripl):
+    for di in ripl.list_directives():
+        if di['instruction']=='observe': ripl.forget(di['directive_id'])
+    
+
 def geweke(r,model,observes,step_size,total_samples,query_exps):
+    'observes=[exp,...]. we dont currently record all assumes'
+    
     exp_vals = {exp:[] for exp in query_exps}
     r.execute_program(model)
     
@@ -33,8 +50,15 @@ def geweke(r,model,observes,step_size,total_samples,query_exps):
         r.infer(step_size)
         [lst.append(r.sample(exp)) for exp,lst in exp_vals.items()]
         [r.forget('test'+str(i)) for i,obs in enumerate(observes)]
-        
+
+    for sample in range(total_samples):
+        [r.observe(exp,r.sample(exp)) for exp in observes]
+        r.infer(step_size)
+        [lst.append(r.sample(exp)) for exp,lst in exp_vals.items()]
+        forget_all_observes(r)
+    
     return exp_vals
+
 
 def condition_prior(r,model,no_datasets,observes,no_transitions,query_exps):
     
@@ -95,15 +119,21 @@ def prepare_tests(directives_string):
 
 
     
+
+
+
+quad = 0
+
 # Simple quadratic model test
-if __name__ == "__main__":
-    no_ripls=2; no_datasets=60
+#if __name__ == "__main__":
+if quad: 
+    no_ripls=2; no_datasets=20
     size_data=5
     model=simple_quadratic_model #x_model_t+quad_fourier_model
     gen_data_exp = '(y_x (x_d))'
     observes = [gen_data_exp] * size_data
     query_exps = ['w0','w1','w2','noise']
-    no_transitions=300
+    no_transitions=80
     mrkwargs={'backend':'puma', 'local_mode':True, 'no_local_ripls':no_ripls}
 
     # from inference
@@ -136,8 +166,8 @@ if __name__ == "__main__":
                   ['ana','prior','prior','ge'])
 
     plt.close('all')
-    pp_plot_all(store_exp_vals_inf,store_exp_vals_prior,'inf','prior')
-    pp_plot_all(ana_store_exp_vals,store_exp_vals_prior,'ana','prior')
+    qq_plot_all(store_exp_vals_inf,store_exp_vals_prior,'inf','prior')
+    qq_plot_all(ana_store_exp_vals,store_exp_vals_prior,'ana','prior')
     plt.show()
 
 
@@ -186,7 +216,7 @@ def condition_prior_sample(r,model,no_datasets,list_observes,no_transitions,quer
     return exp_vals
 
 
-mr_map_proc(mripl,condition_prior_sample,model,no_datasets,observes,no_transitions,query_exps)
+#mr_map_proc(mripl,condition_prior_sample,model,no_datasets,observes,no_transitions,query_exps)
 
 
 def condition_prior_fail(r,model,no_datasets,observes,no_transitions,
