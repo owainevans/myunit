@@ -158,7 +158,6 @@ class Analytics(object):
             observes = [di for di in di_list if di['instruction']=='observe']
             self.observes = map(directive_split,observes)
         
-
         if queryExps is None: queryExps = []
         self.queryExps = queryExps
 

@@ -1,6 +1,7 @@
 from venture.venturemagics.ip_parallel import *
-from venture.venturemagics.reg_demo_utils import *
+from venture.venturemagics.reg_demo_utils import simple_quadratic_model
 from scipy.stats import probplot
+from analytics import directive_split
 
 def qq_plot(s1,s2,label1,label2):
     fig,ax = plt.subplots(figsize=(3,3))
@@ -36,6 +37,10 @@ def qq_plot_all(dict1,dict2,label1,label2):
     fig.tight_layout()
     return fig
 
+def riplToAssumesObserves(ripl):
+     assumes=[directive_split(di) for di in ripl.list_directives() if di['instruction']=='assume']
+     observes=[directive_split(di) for di in ripl.list_directives() if di['instruction']=='observe']
+     return assumes,observes
 
 def forget_all_observes(ripl):
     for di in ripl.list_directives():
@@ -50,6 +55,23 @@ def makeNameToSeries(assumes,queryExps,queryAssumes):
     nameToSeries = {exp:[] for exp in queryExps}
     if queryAssumes: nameToSeries.update( {exp:[] for exp,_ in assumes} )
     return nameToSeries
+
+def makeHistoryForm(list_nameToSeries):
+    historyForm = {}
+    for name in list_nameToSeries[0].keys():
+        historyForm[name] = [nTSeries[name] for nTSeries in list_nameToSeries]
+    return historyForm
+
+def makeSnapshots(historyForm):
+    ':: {name0:[name0_series0,name0_series1,...,], name1: ,...}'
+    s={name:[] for name in historyForm.keys()}
+    
+    for name,list_series in historyForm.items():
+        len_series = len(list_series[0])
+        for t in range(len_series):
+            s[name].append([series[t] for series in list_series])
+    return s
+     
     
 def geweke(ripl,assumes,observes,totalSamples,queryExps=None,
            stepSize=None,queryAssumes=True,observeToPredict=False):
@@ -73,15 +95,24 @@ def geweke(ripl,assumes,observes,totalSamples,queryExps=None,
             [ripl.observe(exp, ripl.sample(exp)) for exp in observes]
         else:
             [ripl.predict(exp) for exp in observes]
-        ripl.infer(stepSize)
+        if sample<totalSamples-1:  ripl.infer(stepSize)
         forget_all_observes(ripl)
-        # queryExps not recorded after final infer
-            
+
     return nameToSeries
 
 
 def runFromConditional(ripl,assumes,observes,totalSamples,queryExps=None,
                        stepSize=None, queryAssumes=True):
+    ## EDIT GLOBAL FUNCS
+    def defaultSweep(assumes,infer_prog=None):
+        return int(1+(1.5*len(assumes)))
+    
+    def makeNameToSeries(assumes,queryExps,queryAssumes):
+        if queryExps is None:
+            queryExps = []
+        nameToSeries = {exp:[] for exp in queryExps}
+        if queryAssumes: nameToSeries.update( {exp:[] for exp,_ in assumes} )
+        return nameToSeries
 
     assert all([len(obs)==2 for obs in observes])
     
@@ -95,86 +126,66 @@ def runFromConditional(ripl,assumes,observes,totalSamples,queryExps=None,
     
     for sample in range(totalSamples):
         [series.append(ripl.sample(exp)) for exp,series in nameToSeries.items()]
-        ripl.infer(stepSize) # queryExps not recorded after final infer
+        if sample<totalSamples-1:  ripl.infer(stepSize)
 
-    return nameToSeries,ripl
-
-
-def testRFC(totalSamples,poisson=False):
-    ripl=mk_p_ripl()
-    assumes=[('mu','(normal 0 1)')]
-    observes=[('(normal mu .1)','.5')]*5
-    queryExps=['(normal mu .2)']
-    if poisson:
-        assumes=[('mu','(poisson 30)')]
-        observes=[('(normal mu 1)','20')]*5
-    nameToSeries,_ = runFromConditional(ripl,assumes,observes,
-                                        totalSamples,queryExps=queryExps,
-                                        stepSize=5)
-    mean=np.mean(nameToSeries['mu'])
-    std=abs(np.std(nameToSeries['mu']))
-    print 'testRFC: poisson=%s'%poisson
-    print 'assumes=%s, observes=%s'%(str(assumes),str(observes))
-    print 'infer mu (mean,var): ',mean,std
-    
-    return nameToSeries
-
-def mrRFC():
-    pass
-  
-    
+    return nameToSeries#,ripl FIXME can't output due to pickling
 
 
-
-def compareDataSimulation(ripl,assumes,observes,transitions,samples_per_observe):
-    # run inference
-    ripl.infer(transitions)
-    #observe_simulations = 
-    #for exp in observes:
-    pass    
-
-
-
-
-def mrRCP(no_ripls,*args,**kwargs):
-     out = mr_
+def mrRFC(mripl,assumes,observes,totalSamples,queryExps=None,
+          stepSize=None,queryAssumes=True):
+    'RunFromConditional mapped across mripl with same observes.'
+    argsRFC = (assumes,observes,totalSamples)
+    kwargsRFC = {'queryExps':queryExps , 'stepSize':stepSize, 'queryAssumes':True}
+    list_nameToSeries = mr_map_proc(mripl,'all',runFromConditional,*argsRFC,**kwargsRFC)
+    historyForm = makeHistoryForm(list_nameToSeries)
+    return historyForm,mripl
 
 
-
-def condition_prior(r,model,no_datasets,observes,no_transitions,queryExps):
-    
-    exp_vals = {exp:[] for exp in queryExps}
-    r.execute_program(model)
-    
-    for dataset in range(no_datasets):
-        data=[r.predict(obs,label='test'+str(i)) for i,obs in enumerate(observes)]
-        [r.forget('test'+str(i)) for i,obs in enumerate(observes)]
-        [r.observe(obs,data[i],label='test'+str(i)) for i,obs in enumerate(observes)]
-    
-        r.infer(no_transitions)
-        [lst.append(r.sample(exp)) for exp,lst in exp_vals.items()]
-        [r.forget('test'+str(i)) for i,obs in enumerate(observes)]
+def testFromPrior(mripl,no_datasets,assumes,observes,totalSamples,queryExps=None,
+          stepSize=None,queryAssumes=True):
+    seeds = [1]*no_datasets
+    mripl.set_remote_seed(seeds)
+    v=mripl.local_ripls[0]
+    datasets=[]
+    for i in range(no_datasets):
+        datasets.append( [(exp,v.sample(exp)) for exp,_ in observes] )
         
-    return exp_vals
+    args=[(assumes,obs,totalSamples) for obs in datasets]
+    kwargs=[{'queryExps':queryExps , 'stepSize':StepSize, 'queryAssumes':True}]*no_datasets
+    argsList = zip(args,kwargs)
+
+    list_nameToSeries = mr_map_array(mripl,runFromConditional,argsList,no_kwargs=False)
+    historyForm = makeHistoryForm(list_nameToSeries)
+
+    return historyForm,mripl
 
 
-def mr_condition_prior(no_ripls, no_datasets, model,
-                       observes, queryExps, no_transitions,**mrkwargs):
-    v=MRipl(no_ripls,**mrkwargs)
-    all_out = mr_map_proc(v,no_ripls,condition_prior,
-                          model,no_datasets,observes,
-                          no_transitions,queryExps)
- 
-    store_exp_vals={exp:[] for exp in queryExps}        
-    [store_exp_vals[exp].extend(ripl_out[exp]) for exp in queryExps for ripl_out in all_out]
-    return store_exp_vals
+def mrForwardSample(mripl,assumes,observes,totalSamples,queryExps=None,
+                    queryAssumes=True):
+    
+    mr = MRipl(totalSamples,backend=mripl.backend,local_mode=mripl.local_mode)
+    nameToSeries = makeNameToSeries(assumes,queryExps,queryAssumes)
+    [mr.assume(sym,exp) for sym,exp in assumes]
+    return {name:mr.sample(name) for name in nameToSeries}
 
 
-def mr_forward_sample(no_samples,model,queryExps,**mrkwargs):
-    mr = MRipl(no_samples,**mrkwargs)
-    mr.execute_program(model)
-    return {exp:mr.sample(exp) for exp in queryExps}
+def compareSampleDicts(dicts,labels):
+    for exp,_ in dicts[0].iteritems():
+        for i,d in enumerate(dicts):
+            stats = [np.mean(d[exp]), np.median(d[exp]), np.std(d[exp]) ]
+            print 'Label %s, Exp %s, mean, median, std = %.3f %.3f %.3f'% [labels[i],
+                                                                           exp] + stats
+    fig = qq_plot_all(dicts[0],dicts[1],labels[0],labels[1])
+    return fig
 
+def testMrForwardSample(totalSamples=100):
+    assumes=['mu','(normal 0 1)']
+    observes = []
+    forward_dict = mrForwardSample(MRipl(2),assumes,observes,
+                                    totalSamples)
+    RFC_dict = runFromConditional(mk_p_ripl,assumes,obseves,totalSamples)
+    fig = compareSampleDicts([forward_dict,RFC_dict],['forwardSample','RFC'])
+    return fig
 
 def compare_stats(list_dicts,list_labels=None):
     if not list_labels:
@@ -187,16 +198,11 @@ def compare_stats(list_dicts,list_labels=None):
         print '%s stds:'%exp, np.std(lists,axis=1)
         print '----'
 
-def extract_directives(v_st):
-    if isinstance(v_st,str):
-        v_st = mk_p_ripl()
-        v_st.execute_program(v_st)
-    model = '\n'.join(display_directves(v,'assume'))
-    observes = '\n'.join(display_directves(v,'observe'))
-    return model,observes
 
-def prepare_tests(directives_string):
-    model,observes = extract_directives(directives_string)
+def testForwardSampleMRRFC(totalSamples=100):
+    v=MRipl(10)
+    
+    
 
 
 def testGeweke(totalSamples = 400, plot=False,
@@ -225,6 +231,68 @@ def testGeweke(totalSamples = 400, plot=False,
         probplot(nameToSeries['mu'],dist='norm',plot=plt)
         plt.show()
     return nameToSeries
+
+
+def testRFC(totalSamples,poisson=False,mr=False):
+    ripl=mk_p_ripl() 
+    assumes=[('mu','(normal 0 1)')]
+    observes=[('(normal mu .1)','.5')]*5
+    queryExps=['(normal mu .2)']
+    if poisson:
+        assumes=[('mu','(poisson 30)')]
+        observes=[('(normal mu 1)','20')]*5
+    nameToSeries = runFromConditional(ripl,assumes,observes,
+                                        totalSamples,queryExps=queryExps,
+                                        stepSize=5)
+    mean=np.mean(nameToSeries['mu'])
+    std=abs(np.std(nameToSeries['mu']))
+    print 'testRFC: poisson=%s'%poisson
+    print 'assumes=%s, observes=%s'%(str(assumes),str(observes))
+    print 'infer mu (mean,var): ',mean,std
+
+    # test with bigger model
+    ripl.clear()
+    ripl.execute_program(simple_quadratic_model)
+    [ripl.observe('(y_x %i)'%i, str(i)) for i in range(-4,4) ]
+    assumes,observes = riplToAssumesObserves(ripl)
+    queryExps=['(f 0)','(f 1)']
+    nameToSeries = runFromConditional(mk_p_ripl(),assumes,observes,
+                                      totalSamples,queryExps=queryExps,stepSize=None)
+    print '\n \n simple_quadratic: observes:',observes
+    print 'means,std w0,w1,w2,(f 0):'
+    print map(np.mean,[nameToSeries[name] for name in ['w0','w1','w2','(f 0)'] ])
+    print map(np.std,[nameToSeries[name] for name in ['w0','w1','w2','(f 0)'] ])
+
+    #test mripl RFC
+    history,mripl = mrRFC(MRipl(4),assumes,observes,totalSamples,
+                              queryExps=queryExps,stepSize=3)
+    snapshots = makeSnapshots(history)
+    print '\n \n MRipl RFC: simple_quadratic'
+    print 'last snapshot means,std:'
+    print map(np.mean,[snapshots[name][-1] for name in ['w0','w1','w2','(f 0)'] ])
+    print map(np.std,[snapshots[name][-1] for name in ['w0','w1','w2','(f 0)'] ])
+
+    return nameToSeries,history
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -290,6 +358,46 @@ if quad:
 
 
 ## OLD
+
+def extract_directives(v_st):
+    if isinstance(v_st,str):
+        v_st = mk_p_ripl()
+        v_st.execute_program(v_st)
+    model = '\n'.join(display_directves(v,'assume'))
+    observes = '\n'.join(display_directves(v,'observe'))
+    return model,observes
+
+def prepare_tests(directives_string):
+    model,observes = extract_directives(directives_string)
+
+def condition_prior(r,model,no_datasets,observes,no_transitions,queryExps):
+    
+    exp_vals = {exp:[] for exp in queryExps}
+    r.execute_program(model)
+    
+    for dataset in range(no_datasets):
+        data=[r.predict(obs,label='test'+str(i)) for i,obs in enumerate(observes)]
+        [r.forget('test'+str(i)) for i,obs in enumerate(observes)]
+        [r.observe(obs,data[i],label='test'+str(i)) for i,obs in enumerate(observes)]
+    
+        r.infer(no_transitions)
+        [lst.append(r.sample(exp)) for exp,lst in exp_vals.items()]
+        [r.forget('test'+str(i)) for i,obs in enumerate(observes)]
+        
+    return exp_vals
+
+
+def mr_condition_prior(no_ripls, no_datasets, model,
+                       observes, queryExps, no_transitions,**mrkwargs):
+    v=MRipl(no_ripls,**mrkwargs)
+    all_out = mr_map_proc(v,no_ripls,condition_prior,
+                          model,no_datasets,observes,
+                          no_transitions,queryExps)
+ 
+    store_exp_vals={exp:[] for exp in queryExps}        
+    [store_exp_vals[exp].extend(ripl_out[exp]) for exp in queryExps for ripl_out in all_out]
+    return store_exp_vals
+
 
 def geweke_predict(r,model,observes,step_size,total_samples,queryExps,use_sample=False):
     'observes=[exp,...]. we dont currently record all assumes'
