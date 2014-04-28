@@ -4,6 +4,30 @@ from scipy.stats import probplot
 from analytics import directive_split
 import time
 
+############### TODO LISTE
+0. Go through inference programming and make sure everything is compatible.
+   HIGH PRIORITY!
+
+1. Go through all mripl functions and make sure they
+ work also with local ripl. If local ripl is much faster, work with that.
+
+2. Install new version of IPython.
+
+3. Do posterior checking. After inference, go through observes can 
+   generate N data points from posterior for each expression. Plot
+   the data points along with the observed value (maybe do t test also).
+
+
+
+
+
+
+
+
+
+
+
+
 def qq_plot(s1,s2,label1,label2):
     fig,ax = plt.subplots(figsize=(3,3))
     ax.scatter(sorted(s1),sorted(s2),s=4,lw=0)
@@ -12,7 +36,7 @@ def qq_plot(s1,s2,label1,label2):
 
 def qq_plot_all(dict1,dict2,label1,label2):
     ## http://people.reed.edu/~jones/Courses/P14.pdf
-    # generally: need to do interpolation where samples mismatched
+    # FIXME do interpolation where samples mismatched
     assert len(dict1)==len(dict2)
     no_exps = len(dict1)
     subplot_rows = max(no_exps,2)
@@ -134,7 +158,7 @@ def runFromConditional(ripl,assumes,observes,totalSamples,queryExps=None,
 
 def mrRFC(mripl,assumes,observes,totalSamples,queryExps=None,
           stepSize=None,queryAssumes=True):
-    'RunFromConditional mapped across mripl with same observes.'
+    'RunFromConditional mapped across clear mripl with same observes.'
     argsRFC = (assumes,observes,totalSamples)
     kwargsRFC = {'queryExps':queryExps , 'stepSize':stepSize, 'queryAssumes':True}
     list_nameToSeries = mr_map_proc(mripl,'all',runFromConditional,*argsRFC,**kwargsRFC)
@@ -142,19 +166,20 @@ def mrRFC(mripl,assumes,observes,totalSamples,queryExps=None,
     return historyForm,mripl
 
 
-def multiConditionFromPrior(mripl,no_datasets,assumes,observes,totalSamples,queryExps=None,
-          stepSize=None,queryAssumes=True):
-    seeds = [1]*no_datasets
-    mripl=MRipl(no_datasets,backend=mripl.backend)
-    mripl.remote_set_seeds(seeds)
+def multiConditionFromPrior(mripl,noDatasets,assumes,observes,totalSamples,
+                            queryExps=None,stepSize=None,queryAssumes=True):
+    assert mripl.no_ripls == noDatasets
+    seeds = [1]*noDatasets
+    mripl.mr_set_seeds(seeds=seeds)
     v=mripl.local_ripls[0]
+    [v.assume(sym,exp) for sym,exp in assumes]
     datasets=[]
-    for i in range(no_datasets):
+    for i in range(noDatasets):
         datasets.append( [(exp,v.sample(exp)) for exp,_ in observes] )
         
     args=[(assumes,obs,totalSamples) for obs in datasets]
     kwargs=[{'queryExps':queryExps,'stepSize':stepSize,
-             'queryAssumes':True}] * no_datasets
+             'queryAssumes':True}] * noDatasets
     argsList = zip(args,kwargs)
 
     list_nameToSeries = mr_map_array(mripl,runFromConditional,argsList,no_kwargs=False)
@@ -174,30 +199,60 @@ def mrForwardSample(mripl,assumes,observes,totalSamples,queryExps=None,
 def compareSampleDicts(dicts,labels,plot=False):
     for exp,_ in dicts[0].iteritems():
         for i,d in enumerate(dicts):
-            stats = [np.mean(d[exp]), np.median(d[exp]), np.std(d[exp]) ]
-            sub = tuple([labels[i],exp] + stats)
-            print 'Label %s, Exp %s, mean,median,std = %.3f %.3f %.3f'%sub
+            stats = (np.mean(d[exp]), np.median(d[exp]), np.std(d[exp]))
+            print 'Dict: %s. Exp: %s'%(labels[i],exp)
+            print 'Mean, median, std = %.3f  %.3f  %.3f'%stats
     fig = qq_plot_all(dicts[0],dicts[1],labels[0],labels[1]) if plot else None
     return fig
 
 
-def testMultiConditionFromPrior(totalSamples=100):
+def testMultiConditionFromPrior(totalSamples=100,stepSize=40,plot=False):
     assumes=[('mu','(normal 0 1)')]
     observes=[('(normal mu .1)','.5')]
-    no_datasets=20
+    noDatasets=4
     mripl = MRipl(2)
-    args = (mripl,no_datasets,assumes,observes)
-    historyForm,mripl = multiConditionFromPrior(*args)
-    assert all [seed==mripl.seeds[0] for seed in mripl.seeds]
-    assert all ([5 > abs(mu) for mu in mripl.sample('mu')])
-    assert len(display_directives(mripl,'observes'))==1
+    args = (mripl,noDatasets,assumes,observes,totalSamples)
+    historyForm,mripl = multiConditionFromPrior(*args,stepSize=stepSize)
+
+    # seeds all the same
+    assert all([seed==mripl.seeds[0] for seed in mripl.seeds])
+
+    # mu, with prior N(0,1), is close to 0 after inference on one datapoint
+    assert all([5 > abs(mu) for mu in mripl.sample('mu')])
+
+    # find observes (can't use display_directives yet)
+    di_list=mr_map_proc(mripl,'all',lambda r:r.list_directives())[0]
+    di_obs = [di for di in di_list if di['instruction']=='observe']
+    assert len(di_obs)==1
     
-    # check that for each name, all ripls start at same place for name
-    # check that they end up in different places
-    # check that the last snapshot looks like normal 0 1
-    snapshots = makeSnapshots(history
+    # ripls start in same place for each exp
+    snapshots = makeSnapshots(historyForm)
+    last = {}
+    for exp,snapshots in snapshots.iteritems():
+        print snapshots[0][:5]
+        assert .1 > np.var(snapshots[0])
+        last[exp] = snapshots[-1]
 
+    # compare final snapshot on mu to N(0,1)
+    normal_dict={'mu':np.random.normal(0,1,noDatasets)}
+    compareSampleDicts( [last,normal_dict], ['Last_snapshot_multiCFP','True_Z'],
+                        plot=plot )
+    #assert .8 > abs(np.mean(last['mu']))
+    #assert .8 > abs(np.std(last['mu']) - 1)
 
+    # show divergence of chains
+    if False:
+        no_exps = len(historyForm.keys())
+        fig,ax = plt.subplots(max(no_exps,2),1)
+        for exp_ind,(exp,all_datasets) in enumerate(historyForm.items()):
+            for dataset_ind,dataset in enumerate(all_datasets):
+                
+                ax[exp_ind].plot( dataset, label='Dataset %i' % dataset_ind)
+
+                ax[exp_index].set_title('Exp: %s,[multiConditionFromPrior]')%exp
+                ax.legend()
+    
+    return historyForm
 
 
 
@@ -318,7 +373,7 @@ quad = 0
 # Simple quadratic model test
 #if __name__ == "__main__":
 if quad: 
-    no_ripls=2; no_datasets=20
+    no_ripls=2; noDatasets=20
     size_data=5
     model=simple_quadratic_model #x_model_t+quad_fourier_model
     gen_data_exp = '(y_x (x_d))'
@@ -328,16 +383,16 @@ if quad:
     mrkwargs={'backend':'puma', 'local_mode':True, 'no_local_ripls':no_ripls}
 
     # from inference
-    store_exp_vals_inf = mr_condition_prior(no_ripls,no_datasets,model,
+    store_exp_vals_inf = mr_condition_prior(no_ripls,noDatasets,model,
                                             observes,queryExps,no_transitions,
                                             **mrkwargs)
     # from prior
-    no_samples = no_ripls * no_datasets
+    no_samples = no_ripls * noDatasets
     mrkwargs={'backend':'puma', 'local_mode':True, 'no_local_ripls':no_samples}
     store_exp_vals_prior = mr_forward_sample(no_samples,model,queryExps,**mrkwargs)
 
     # from geweke
-    total_samples = no_ripls * no_datasets
+    total_samples = no_ripls * noDatasets
     step_size=1
     store_exp_vals_geweke = geweke(mk_p_ripl(),model,observes,
                                    step_size,total_samples,queryExps)
@@ -387,12 +442,12 @@ def extract_directives(v_st):
 def prepare_tests(directives_string):
     model,observes = extract_directives(directives_string)
 
-def condition_prior(r,model,no_datasets,observes,no_transitions,queryExps):
+def condition_prior(r,model,noDatasets,observes,no_transitions,queryExps):
     
     exp_vals = {exp:[] for exp in queryExps}
     r.execute_program(model)
     
-    for dataset in range(no_datasets):
+    for dataset in range(noDatasets):
         data=[r.predict(obs,label='test'+str(i)) for i,obs in enumerate(observes)]
         [r.forget('test'+str(i)) for i,obs in enumerate(observes)]
         [r.observe(obs,data[i],label='test'+str(i)) for i,obs in enumerate(observes)]
@@ -404,11 +459,11 @@ def condition_prior(r,model,no_datasets,observes,no_transitions,queryExps):
     return exp_vals
 
 
-def mr_condition_prior(no_ripls, no_datasets, model,
+def mr_condition_prior(no_ripls, noDatasets, model,
                        observes, queryExps, no_transitions,**mrkwargs):
     v=MRipl(no_ripls,**mrkwargs)
     all_out = mr_map_proc(v,no_ripls,condition_prior,
-                          model,no_datasets,observes,
+                          model,noDatasets,observes,
                           no_transitions,queryExps)
  
     store_exp_vals={exp:[] for exp in queryExps}        
@@ -456,11 +511,11 @@ def geweke_sample(r,model,observes,step_size,total_samples,query_exps):
     return exp_vals
 
 
-def condition_prior_sample(r,model,no_datasets,list_observes,no_transitions,query_exps):
+def condition_prior_sample(r,model,noDatasets,list_observes,no_transitions,query_exps):
 
     exp_vals = {exp:[] for exp in query_exps}
 
-    for dataset in range(no_datasets):
+    for dataset in range(noDatasets):
         r.clear()
         r.execute_program(model)
         
@@ -472,14 +527,14 @@ def condition_prior_sample(r,model,no_datasets,list_observes,no_transitions,quer
     return exp_vals
 
 
-#mr_map_proc(mripl,condition_prior_sample,model,no_datasets,observes,no_transitions,query_exps)
+#mr_map_proc(mripl,condition_prior_sample,model,noDatasets,observes,no_transitions,query_exps)
 
 
-def condition_prior_fail(r,model,no_datasets,observes,no_transitions,
+def condition_prior_fail(r,model,noDatasets,observes,no_transitions,
                          query_exps):
     'Fails because clearing resets the seeds. Every ripl in MR gives same values'
     exp_vals = {exp:[] for exp in query_exps}
-    for dataset in range(no_datasets):
+    for dataset in range(noDatasets):
         r.clear()
         r.execute_program(model)
         obs_did_start = len(r.list_directives())+1 #dids start at 1
@@ -494,8 +549,8 @@ def condition_prior_fail(r,model,no_datasets,observes,no_transitions,
 
 
 
-def con_prior(r,no_datasets,gen_data_exp,size_data,no_transitions,vars):
-    for i in no_datasets:
+def con_prior(r,noDatasets,gen_data_exp,size_data,no_transitions,vars):
+    for i in noDatasets:
         data=[]
         for data_point in range(size_data):
             data.append(r.predict(gen_data_exp,label=str(datapoint)))
@@ -512,7 +567,7 @@ def con_prior(r,no_datasets,gen_data_exp,size_data,no_transitions,vars):
 
 
 # # simple version
-# for i in no_datasets:
+# for i in noDatasets:
 #     datasets = [r.predict(gen_data) for ripl in no_ripls for i in size_data]
 
 #     mr_map_array(v,lambda r,exp,val:r.observe(exp,val),dataset[
