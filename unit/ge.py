@@ -5,28 +5,58 @@ from analytics import directive_split
 import time
 
 ############### TODO LISTE
-0. Go through inference programming and make sure everything is compatible.
-   HIGH PRIORITY!
+# 0. Warn about problem with closures/namespace for inference programs
 
-1. Go through all mripl functions and make sure they
- work also with local ripl. If local ripl is much faster, work with that.
+# 2. Install new version of IPython.
 
-2. Install new version of IPython.
-
-3. Do posterior checking. After inference, go through observes can 
-   generate N data points from posterior for each expression. Plot
-   the data points along with the observed value (maybe do t test also).
+# 3. Do posterior checking. After inference, go through observes can 
+#    generate N data points from posterior for each expression. Plot
+#    the data points along with the observed value (maybe do t test also).
 
 
+notes on tests:
+ks test assumes iid. with geweke we dont get iid samples. 
+so we would really need to correct for that. this is a 
+reason to focus on qq_plot. we'll also neeeds lots of samples
+to get a rejection of same distribution via the ks test. (get 
+some flavor for this. maybe output that info). what should a 
+bayesian do here?
 
+if our worry is an error in the inference algorithm itself,
+then we want to test whether the two dists are exactly the 
+same and have a rigorous test with lots of samples. geweke
+is then just a test for how much autocorrelation we'll have.
+(since the autocorrelation is related to convergence in general
+this could be very useful to have info about. but note that
+this is not what KS is meant to test. with geweke, we know
+the dists are the same (assuming no bugs) and what we really
+want to measure is degree of independence in the geweke samples
+so we want something that measures autocorrelation. why not 
+just measure that? (idea that given one set of dep samples 
+and one set of indie, there should be way of measuring of many
+of the dep samples you need per indie, i.e. the effective 
+sample size. we can measure the estimated kl between them
+over time, but that doesn't seem likely to be the best test.)
 
+with the testfromprior, we want to compare the distance of the 
+distributions, but we need to take into account our limited 
+number of samples from each. so KS is ok here. though again,
+maybe once we get enough samples, it's clear dists are different
+then question is how close are they. we might do KL here also,
+as a useful estimator if we have loads of samples. (what is 
+our estimator of KL like if variances are huge? we can just
+try it with data from cauchy. massive numbers of samples.)
 
+note that we could do a serious bayesian thing, with a dists
+same CRP density estimate and a dists different model, with
+bayes optimzation. we integrate out for predictions for each
+one. not clear how useful this info is, vs. just getting QQ plot. 
 
-
-
-
-
-
+other idea: you could take as input a function on the values of the 
+observes. this could compute a summary statistic for the observes.
+which we can then compute a posterior dist over. you can specify
+a plot for the ripl and we can generate lots of sample plots. 
+(nice general way of dealing. then user can customize.)
 
 def qq_plot(s1,s2,label1,label2):
     fig,ax = plt.subplots(figsize=(3,3))
@@ -67,12 +97,19 @@ def riplToAssumesObserves(ripl):
      observes=[directive_split(di) for di in ripl.list_directives() if di['instruction']=='observe']
      return assumes,observes
 
-def forget_all_observes(ripl):
+def forgetAllObserves(ripl):
     for di in ripl.list_directives():
         if di['instruction']=='observe': ripl.forget(di['directive_id'])
+
+def progInfer(ripl,step,infer=None):
+    if infer is None:
+        ripl.infer(step)
+    elif isinstance(infer, str):
+        ripl.infer(infer)
+    else:
+        infer(ripl, step)
     
-def defaultSweep(assumes,infer_prog=None):
-    return int(1+(1.5*len(assumes)))
+def defaultSweep(assumes): return int(1+(1.5*len(assumes)))
     
 def makeNameToSeries(assumes,queryExps,queryAssumes):
     if queryExps is None:
@@ -99,7 +136,7 @@ def makeSnapshots(historyForm):
      
     
 def geweke(ripl,assumes,observes,totalSamples,queryExps=None,
-           stepSize=None,queryAssumes=True,observeToPredict=False):
+           stepSize=None,queryAssumes=True,observeToPredict=False,infer=None):
     '''Geweke 2004 test. Sample values for *observes* from current
     ripl state, observe them, infer(*stepSize*), then forget observes.
     Repeat for totalSamples. Determine ripl seed and backend via *ripl*.'''
@@ -120,17 +157,18 @@ def geweke(ripl,assumes,observes,totalSamples,queryExps=None,
             [ripl.observe(exp, ripl.sample(exp)) for exp in observes]
         else:
             [ripl.predict(exp) for exp in observes]
-        if sample<totalSamples-1:  ripl.infer(stepSize)
-        forget_all_observes(ripl)
+        if sample<totalSamples-1:
+            progInfer(ripl,stepSize,infer=infer)
+        forgetAllObserves(ripl)
 
     return nameToSeries
 
 
+
 def runFromConditional(ripl,assumes,observes,totalSamples,queryExps=None,
-                       stepSize=None, queryAssumes=True):
+                       stepSize=None, queryAssumes=True,infer=None):
     ## EDIT GLOBAL FUNCS
-    def defaultSweep(assumes,infer_prog=None):
-        return int(1+(1.5*len(assumes)))
+    def defaultSweep(assumes): return int(1+(1.5*len(assumes)))
     
     def makeNameToSeries(assumes,queryExps,queryAssumes):
         if queryExps is None:
@@ -138,6 +176,14 @@ def runFromConditional(ripl,assumes,observes,totalSamples,queryExps=None,
         nameToSeries = {exp:[] for exp in queryExps}
         if queryAssumes: nameToSeries.update( {exp:[] for exp,_ in assumes} )
         return nameToSeries
+
+    def progInfer(ripl,step,infer=None):
+        if infer is None:
+            ripl.infer(step)
+        elif isinstance(infer, str):
+            ripl.infer(infer)
+        else:
+            infer(ripl, step)
 
     assert all([len(obs)==2 for obs in observes])
     
@@ -151,130 +197,142 @@ def runFromConditional(ripl,assumes,observes,totalSamples,queryExps=None,
     
     for sample in range(totalSamples):
         [series.append(ripl.sample(exp)) for exp,series in nameToSeries.items()]
-        if sample<totalSamples-1:  ripl.infer(stepSize)
+        if sample<totalSamples-1:
+            progInfer(ripl,stepSize,infer=infer)
 
     return nameToSeries#,ripl FIXME can't output due to pickling
 
 
 def mrRFC(mripl,assumes,observes,totalSamples,queryExps=None,
-          stepSize=None,queryAssumes=True):
+          stepSize=None,queryAssumes=True,infer=None):
     'RunFromConditional mapped across clear mripl with same observes.'
     argsRFC = (assumes,observes,totalSamples)
-    kwargsRFC = {'queryExps':queryExps , 'stepSize':stepSize, 'queryAssumes':True}
+    kwargsRFC = {'queryExps':queryExps, 'stepSize':stepSize,
+                 'queryAssumes':True, 'infer':infer}
     list_nameToSeries = mr_map_proc(mripl,'all',runFromConditional,*argsRFC,**kwargsRFC)
     historyForm = makeHistoryForm(list_nameToSeries)
     return historyForm,mripl
 
 
 def multiConditionFromPrior(mripl,noDatasets,assumes,observes,totalSamples,
-                            queryExps=None,stepSize=None,queryAssumes=True):
+                            queryExps=None, stepSize=None, queryAssumes=True,
+                            infer=None):
     assert mripl.no_ripls == noDatasets
     seeds = [1]*noDatasets
     mripl.mr_set_seeds(seeds=seeds)
-    v=mripl.local_ripls[0]
-    [v.assume(sym,exp) for sym,exp in assumes]
+
     datasets=[]
     for i in range(noDatasets):
+        v=mk_p_ripl()
+        v.set_seed(i)
+        [v.assume(sym,exp) for sym,exp in assumes]
         datasets.append( [(exp,v.sample(exp)) for exp,_ in observes] )
         
     args=[(assumes,obs,totalSamples) for obs in datasets]
     kwargs=[{'queryExps':queryExps,'stepSize':stepSize,
-             'queryAssumes':True}] * noDatasets
+             'queryAssumes':True,'infer':infer}] * noDatasets
     argsList = zip(args,kwargs)
+
 
     list_nameToSeries = mr_map_array(mripl,runFromConditional,argsList,no_kwargs=False)
     historyForm = makeHistoryForm(list_nameToSeries)
 
+    ## FIXME: add the comparison the samples from the prior (see test)
+    # : forward sample with same mripl,assumes, etc.
+    # the do compare dist and QQ plot and plot over time
+
     return historyForm,mripl
+
 
 
 def mrForwardSample(mripl,assumes,observes,totalSamples,queryExps=None,
                     queryAssumes=True):
-    mr = MRipl(totalSamples,backend=mripl.backend,local_mode=mripl.local_mode)
+    totalSamples==mripl.no_ripls
     nameToSeries = makeNameToSeries(assumes,queryExps,queryAssumes)
-    [mr.assume(sym,exp) for sym,exp in assumes]
-    return {name:mr.sample(name) for name in nameToSeries}
+    [mripl.assume(sym,exp) for sym,exp in assumes]
+    return {name:mripl.sample(name) for name in nameToSeries}
 
 
 def compareSampleDicts(dicts,labels,plot=False):
+    stats = (np.mean,np.median,np.std,len)
+    stats_dict = {}
     for exp,_ in dicts[0].iteritems():
-        for i,d in enumerate(dicts):
-            stats = (np.mean(d[exp]), np.median(d[exp]), np.std(d[exp]))
-            print 'Dict: %s. Exp: %s'%(labels[i],exp)
-            print 'Mean, median, std = %.3f  %.3f  %.3f'%stats
+        stats_dict[exp] = []
+        for dict_i,label_i in zip(dicts,labels):
+            samples=dict_i[exp]
+            s_stats = tuple([s(samples) for s in stats])
+            stats_dict[exp].append(s_stats)
+            print 'Dict: %s. Exp: %s'%(label_i,exp)
+            print 'Mean, median, std, N = %.3f  %.3f  %.3f  %i'%s_stats
     fig = qq_plot_all(dicts[0],dicts[1],labels[0],labels[1]) if plot else None
-    return fig
+    return stats_dict,fig
 
 
-def testMultiConditionFromPrior(totalSamples=100,stepSize=40,plot=False):
+def testMultiConditionFromPrior(totalSamples=100, noDatasets=10,
+                                stepSize=40,plot=False,local_mode=False):
     assumes=[('mu','(normal 0 1)')]
-    observes=[('(normal mu .1)','.5')]
-    noDatasets=4
-    mripl = MRipl(2)
+    observes=[('(normal mu .05)','1.4')]*4
+    mripl = MRipl(noDatasets,local_mode=local_mode)
     args = (mripl,noDatasets,assumes,observes,totalSamples)
     historyForm,mripl = multiConditionFromPrior(*args,stepSize=stepSize)
 
     # seeds all the same
     assert all([seed==mripl.seeds[0] for seed in mripl.seeds])
 
-    # mu, with prior N(0,1), is close to 0 after inference on one datapoint
+    # mu, with prior N(0,1), close to 0 after inference on one datapoint
     assert all([5 > abs(mu) for mu in mripl.sample('mu')])
 
     # find observes (can't use display_directives yet)
     di_list=mr_map_proc(mripl,'all',lambda r:r.list_directives())[0]
     di_obs = [di for di in di_list if di['instruction']=='observe']
-    assert len(di_obs)==1
+    assert len(di_obs)==len(observes)
     
     # ripls start in same place for each exp
     snapshots = makeSnapshots(historyForm)
     last = {}
     for exp,snapshots in snapshots.iteritems():
-        print snapshots[0][:5]
-        assert .1 > np.var(snapshots[0])
+        assert .01 > np.var(snapshots[0])
         last[exp] = snapshots[-1]
 
     # compare final snapshot on mu to N(0,1)
     normal_dict={'mu':np.random.normal(0,1,noDatasets)}
-    compareSampleDicts( [last,normal_dict], ['Last_snapshot_multiCFP','True_Z'],
-                        plot=plot )
-    #assert .8 > abs(np.mean(last['mu']))
-    #assert .8 > abs(np.std(last['mu']) - 1)
+    dicts = [last,normal_dict]
+    labels = ['Last_snapshot_multiCFP','True_N(0,1)']
+    stats_dict,_ = compareSampleDicts(dicts,labels,plot=plot)
+    if noDatasets>20 and totalSamples>10:
+        stats_last,stats_N01 = np.array(stats_dict['mu'])
+        assert all(np.abs(stats_last - stats_N01) < .6 )
+    
 
     # show divergence of chains
-    if False:
+    if plot:
         no_exps = len(historyForm.keys())
         fig,ax = plt.subplots(max(no_exps,2),1)
         for exp_ind,(exp,all_datasets) in enumerate(historyForm.items()):
             for dataset_ind,dataset in enumerate(all_datasets):
-                
                 ax[exp_ind].plot( dataset, label='Dataset %i' % dataset_ind)
-
-                ax[exp_index].set_title('Exp: %s,[multiConditionFromPrior]')%exp
-                ax.legend()
+            ax[exp_ind].set_title('Exp: %s, [multiConditionFromPrior]' % exp )
+            ax[exp_ind].legend()
+        fig.tight_layout()
     
-    return historyForm
-
-
-
-
-
-
-
-
+    return historyForm,fig if plot else historyForm
 
 
 def testMrForwardSample(totalSamples=100,plot=False):
     start = time.time()
     assumes=[('mu','(normal 0 1)')]
     observes = []
-    forward_dict = mrForwardSample(MRipl(2),assumes,observes,totalSamples)
+    forward_dict = mrForwardSample(MRipl(totalSamples),assumes,observes,totalSamples)
     print 'time after forwardsample:', time.time() - start
     
     RFC_dict = runFromConditional(mk_p_ripl(),assumes,observes,totalSamples)
-    fig = compareSampleDicts([forward_dict,RFC_dict],['forwardSample','RFC'],
-                             plot=plot)
-    return fig
-
+    dicts =[forward_dict,RFC_dict]
+    labels= ['forwardSample','RFC']
+    stats_dict,fig = compareSampleDicts(dicts,labels,plot=plot)
+    if totalSamples>50:
+        stats_forward,stats_RFC = np.array(stats_dict['mu'])
+        assert all(np.abs(stats_forward - stats_RFC) < .6 )
+    return 
 
 
 def testGeweke(totalSamples = 400, plot=False,
@@ -305,19 +363,23 @@ def testGeweke(totalSamples = 400, plot=False,
     return nameToSeries
 
 
-def testRFC(totalSamples,poisson=False,mr=False):
+def testRFC(totalSamples,poisson=False):
     ripl=mk_p_ripl() 
     assumes=[('mu','(normal 0 1)')]
-    observes=[('(normal mu .1)','.5')]*5
+    observes=[('(normal mu .1)','.5')]*8
     queryExps=['(normal mu .2)']
     if poisson:
         assumes=[('mu','(poisson 30)')]
-        observes=[('(normal mu 1)','20')]*5
+        observes=[('(normal mu 1)','20')]*8
     nameToSeries = runFromConditional(ripl,assumes,observes,
                                         totalSamples,queryExps=queryExps,
                                         stepSize=5)
     mean=np.mean(nameToSeries['mu'])
     std=abs(np.std(nameToSeries['mu']))
+    if poisson:
+        assert 2>abs(mean - 30)
+    else:
+        assert .2 > abs(mean - .5)
     print 'testRFC: poisson=%s'%poisson
     print 'assumes=%s, observes=%s'%(str(assumes),str(observes))
     print 'infer mu (mean,var): ',mean,std
@@ -325,24 +387,32 @@ def testRFC(totalSamples,poisson=False,mr=False):
     # test with bigger model
     ripl.clear()
     ripl.execute_program(simple_quadratic_model)
-    [ripl.observe('(y_x %i)'%i, str(i)) for i in range(-4,4) ]
+    [ripl.observe('(y_x %i)'%i, str(i)) for i in range(-5,5) ]
     assumes,observes = riplToAssumesObserves(ripl)
     queryExps=['(f 0)','(f 1)']
     nameToSeries = runFromConditional(mk_p_ripl(),assumes,observes,
                                       totalSamples,queryExps=queryExps,stepSize=None)
-    print '\n \n simple_quadratic: observes:',observes
+    print '\n \n simple_quadratic: observes: (i,i) for range(-5,5)'
     print 'means,std w0,w1,w2,(f 0):'
-    print map(np.mean,[nameToSeries[name] for name in ['w0','w1','w2','(f 0)'] ])
-    print map(np.std,[nameToSeries[name] for name in ['w0','w1','w2','(f 0)'] ])
-
+    means = map(np.mean,[nameToSeries[name] for name in ['w0','w1','w2','(f 0)'] ])
+    stds = map(np.std,[nameToSeries[name] for name in ['w0','w1','w2','(f 0)'] ])
+    assert .5>abs(means[0]) and .4>abs(means[1]-1) and .1>abs(means[2])
+    print np.round(means,2),'\n',np.round(stds,2)
+    
     #test mripl RFC
-    history,mripl = mrRFC(MRipl(4),assumes,observes,totalSamples,
+    for local_mode in [True,False]:
+        start=time.time()
+        history,mripl = mrRFC(MRipl(4,local_mode=local_mode),
+                              assumes,observes,totalSamples,
                               queryExps=queryExps,stepSize=3)
-    snapshots = makeSnapshots(history)
-    print '\n \n MRipl RFC: simple_quadratic'
-    print 'last snapshot means,std:'
-    print map(np.mean,[snapshots[name][-1] for name in ['w0','w1','w2','(f 0)'] ])
-    print map(np.std,[snapshots[name][-1] for name in ['w0','w1','w2','(f 0)'] ])
+        snapshots = makeSnapshots(history)
+        print '\n \n MRipl RFC: simple_quadratic, local_model=%s'%str(local_mode)
+        print 'last snapshot means,std:'
+        means=map(np.mean,[snapshots[name][-1] for name in ['w0','w1','w2','(f 0)'] ])
+        stds=map(np.std,[snapshots[name][-1] for name in ['w0','w1','w2','(f 0)'] ])
+        assert .5>abs(means[0]) and .4>abs(means[1]-1) and .1>abs(means[2])
+        print np.round(means,2),'\n',np.round(stds,2)
+        print 'time: ',time.time() - start
 
     return nameToSeries,history
 
@@ -490,7 +560,7 @@ def geweke_predict(r,model,observes,step_size,total_samples,queryExps,use_sample
             [r.observe(exp,r.sample(exp)) for exp in observes]
             r.infer(step_size)
             [lst.append(r.sample(exp)) for exp,lst in exp_vals.items()]
-            forget_all_observes(r)
+            forgetAllObserves(r)
     
     return exp_vals
 
