@@ -33,6 +33,12 @@ execfile('/home/owainevans/myunit/unit/history.py')
 # with gelman-rubin variances. 
 
 
+# todo:
+# 1. get rid of sweep notion. take string or parsed thing or procedure that takes a ripl (which
+# could implement count assumes and observes or count current number of random choices).
+# 2. scale parameter and so on can live in sweeps. 
+
+
 def directive_split(d):
     'Splits directive in list_directives form to components'
     ## FIXME: replace symbols, calls build_exp from ip_para
@@ -94,43 +100,56 @@ class VentureUnit(object):
 
         self.observes = []
         self.makeObserves()
-
-        self.kwargs = {'ripl':self.ripl, 'assumes':self.assumes,'observes':self.observes,
-                        'parameters':self.parameters}
+        
+        self.analyticsArgs = self.ripl
+        self.analyticsKwargs = dict(assumes=self.assumes, observes=self.observes,
+                           parameters=self.parameters)
 
     def nameObserve(self,index):
         pass
 
     def sampleFromJoint(self,*args,**kwargs):
-        a = Analytics(**self.kwargs)
+        a = Analytics(*self.analyticsArgs, **self.analyticsKwargs)
         return a.sampleFromJoint(*args,**kwargs)
 
     def runFromJoint(self,*args,**kwargs):
-        a = Analytics(**self.kwargs)
+        a = Analytics(*self.analyticsArgs, **self.analyticsKwargs)
         return a.runFromJoint(*args,**kwargs)
     
     def computeJointKL(self,*args,**kwargs):
-        a = Analytics(**self.kwargs)
+        a = Analytics(*self.analyticsArgs, **self.analyticsKwargs)
         return a.computeJointKL(*args,**kwargs)
 
     def runFromConditional(self, *args, **kwargs):
-        a = Analytics(**self.kwargs)
+        a = Analytics(*self.analyticsArgs, **self.analyticsKwargs)
         return a.runFromConditional(*args,**kwargs)
 
     def runConditionedFromPrior(self, *args, **kwargs):
-        a = Analytics(ripl=self.ripl,assumes=self.assumes,observes=self.observes,
-                        parameters=self.parameters)
+        a = Analytics(*self.analyticsArgs, **self.analyticsKwargs)
         return a.runConditionedFromPrior(*args,**kwargs)
 
 
 class Analytics(object):
 
-    # Initializes parameters, generates the model, and prepares the ripl.
-    def __init__(self, ripl=None, assumes=None, observes=None,
-                 parameters=None, queryExps=None):
 
-        self.ripl = ripl if ripl else make_puma_church_prime_ripl()
-        if assumes: self.ripl.clear()
+    def __init__(self, ripl, assumes=None,observes=None,queryExps=None,
+                 parameters=None):
+        assert not(assumes is None and observes is not None),'No *observes* without *assumes*.'
+
+        self.ripl = ripl
+        directives_list = self.ripl.list_directives()
+        
+        if assumes is not None:
+            self.ripl.clear()
+            self.assumes = assumes
+            self.observes = observes if observes is not None else []
+        else:
+            assumes = [d for d in directives_list if d['instruction']=='assume']
+            self.assumes = map(directive_split,assumes)
+            observes = [d for d in directives_list if d['instruction']=='observe']
+            self.observes = map(directive_split,observes)
+
+        self.queryExps=[] if queryExps is None else queryExps
 
         if parameters is None: parameters = {}
         
@@ -138,28 +157,9 @@ class Analytics(object):
         self.parameters = parameters.copy()
         if 'venture_random_seed' not in self.parameters:
             self.parameters['venture_random_seed'] = self.ripl.get_seed()
-            print 'seed was reset to zero due to get_seed bug'
+            print 'Ripl seed was set to zero due to ripl.get_seed() bug'
         else:
             self.ripl.set_seed(self.parameters['venture_random_seed'])
-
-        # FIXME: automatically assume parameters (and omit them from history)?
-        
-        if assumes:
-            self.assumes = assumes
-        else:
-            di_list = self.ripl.list_directives()
-            assumes = [di for di in di_list if di['instruction']=='assume']
-            self.assumes = map(directive_split,assumes)
-        
-        if observes:
-            self.observes = observes
-        else:
-            di_list = self.ripl.list_directives()
-            observes = [di for di in di_list if di['instruction']=='observe']
-            self.observes = map(directive_split,observes)
-        
-        if queryExps is None: queryExps = []
-        self.queryExps = queryExps
 
 
     def updateObserves(self,newObserves=[],removeAllObserves=None):
