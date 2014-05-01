@@ -6,9 +6,30 @@ import time
 from history import *
 
 ############### TODO LISTE
+
+# snapshot should take history, avoid groundtruth series and plot groundtruth with annotation
+
+# show normal snapshot with resultant mripl
+
+
+# Add text output summary for Geweke (maybe grabbing text from comp dicts)
+
+# Get testFromPrior working. Need plot with all runs, with groundTruth
+# on plot with faint, dotted line (edit in history).
+
+# write test for comparing Geweke in analytics to this Geweke. Same
+# for conditioned from prior.
+
+# write testFromPrior for Unit using Force (maybe). 
+
+# Auto measure of cross vs. between chain variation? e.g. plotting 
+# histograms or QQ plots? Need to add interpolation in general. 
+
+
+
+
 # 0. Warn about problem with closures/namespace for inference programs
-# 1. Finish Geweke
-# 2. Add ability to see groundTruth in text output and in plots.
+
 # 3. Finish testFromPrior, generalize plots from current tests. 
 
 # 2. Install new version of IPython.
@@ -16,6 +37,14 @@ from history import *
 # n. Do posterior checking. After inference, go through observes can 
 #    generate N data points from posterior for each expression. Plot
 #    the data points along with the observed value (maybe do t test also).
+
+
+def longTest():
+    args,kwargs = quadratic_linear_obs(mk_p_ripl(),
+                                       stepSize=100, queryExps=['w0','w1','noise'],
+                                       totalSamples=500)
+    fig,hisGeweke,hisForward=compareGeweke(False,*args,**kwargs)
+    return fig,hisGeweke,hisForward
 
 
 def qq_plot(s1,s2,label1,label2):
@@ -58,7 +87,8 @@ def convertHistory(nameToSeries,label='convertHistory',data=None):
     true_nameToSeries={name:[] for name in nameToSeries.keys()}
     for name,listSeries in nameToSeries.items():
         for series in listSeries:
-            true_nameToSeries[name].append(Series(name,series))
+            seriesLabel = '%s: %s'%(label,name)
+            true_nameToSeries[name].append( Series(seriesLabel, series))
     history = History(label=label)
     history.nameToSeries = true_nameToSeries
     if data is not None: history.data = data
@@ -89,6 +119,7 @@ def defaultSweep(assumes): return int(1+(1.5*len(assumes)))
     
 
 def makeNameToSeries(assumes,queryExps,queryAssumes):
+    ##FIXME: not {name:[history.Series0]} but {name:values0}
     if queryExps is None:
         queryExps = []
     nameToSeries = {exp:[] for exp in queryExps}
@@ -96,24 +127,51 @@ def makeNameToSeries(assumes,queryExps,queryAssumes):
     return nameToSeries
 
 
-def makeHistoryForm(list_nameToSeries):
+def makeHistoryForm(nTSeries_or_lstNTSeries):
+    if not isinstance(nTSeries_or_lstNTSeries,(tuple,list)):
+        lstNTS=[nTSeries_or_lstNTSeries]
+    else:
+        lstNTS=nTSeries_or_lstNTSeries
     historyForm = {}
-    for name in list_nameToSeries[0].keys():
-        historyForm[name] = [nTSeries[name] for nTSeries in list_nameToSeries]
+    for name in lstNTS[0].keys():
+        historyForm[name] = [nTSeries[name] for nTSeries in lstNTS]
     return historyForm
 
+def addHistory(History1,History2):
+    History1.label = '%s + %s'%(History1.label,History2.label)
+    for (name, seriesList) in History2.nameToSeries.iteritems():
+        for seriesObj in seriesList:
+            History1.nameToSeries[name].append(seriesObj)
+    
 
-def makeSnapshots(historyForm):
+def makeSnapshots(history):
     ':: {name0:[name0_series0,name0_series1,...,], name1: ,...}'
-    s={name:[] for name in historyForm.keys()}
+    if not isinstance(history,History):
+        history = convertHistory(history)
+    snapshots={}
+    for name,listSeries in history.nameToSeries.items():
+        arrayValues = np.array( [s.values for s in listSeries] )
+        snapshots[name] = map(list,arrayValues.T) 
+    return snapshots
+
+
+    # snapshots={}
+    # for name,lstS in nts.iteritems():
+    #     len_series = len(lstS[0])
+    #     no_series = len(lstS)
+    #     snapshots[name]=[ [0]*no_series ] * len_series
+    #     for snapshot in snapshots[name]:
+    #         for ripl in snapshot:
+    #             ripl = lstS[ripl_ind][snapshot_time]
     
-    for name,list_series in historyForm.items():
-        len_series = len(list_series[0])
-        for t in range(len_series):
-            s[name].append([series[t] for series in list_series])
-    return s
-     
+    # s={name:[] for name in historyForm.keys()}
     
+    # for name,list_series in historyForm.items():
+    #     len_series = len(list_series[0])
+    #     for t in range(len_series):
+    #         s[name].append([series[t] for series in list_series])
+    # return s
+         
 def geweke(ripl,assumes,observes,totalSamples,queryExps=None,
            stepSize=None,queryAssumes=True,infer=None):
     '''Geweke 2004 test. Sample values for *observes* from current
@@ -140,20 +198,26 @@ def geweke(ripl,assumes,observes,totalSamples,queryExps=None,
 
     return nameToSeries
 
-def compareGeweke(*args,**kwargs):
+def compareGeweke(plots,*args,**kwargs):
     'Generate prior and Geweke samples and compare with QQ plot'
     mripl=MRipl(2,local_mode=True)
     nameToSeriesGeweke=geweke(*args,**kwargs)
     nameToSeriesForward=mrForwardSample(mripl,*args,**kwargs)
     labels=['geweke','forward']
-    stats_dict=compareSampleDicts([nameToSeriesGeweke,
-                                   nameToSeriesForward],labels)
+    stats_dict,fig=compareSampleDicts([nameToSeriesGeweke,
+                                   nameToSeriesForward],labels,plot=True)
     observes = args[2]
-    history = convertHistory(nameToSeriesGeweke,label='geweke',data=observes)
+    hisGeweke = convertHistory(makeHistoryForm(nameToSeriesGeweke),
+                             label=labels[0],data=observes)
+    hisForward = convertHistory(makeHistoryForm(nameToSeriesForward),
+                                label=labels[1],data=None)
     
-    for name in enumerate(nameToSeriesGeweke.keys()):
-        history.quickPlot(name)
-    
+    #FIXME: historyOverlay('Geweke vs. Forward',[('geweke',hisGeweke),
+    # plot overlaid history plots
+    if plots:
+        for i,name in enumerate(nameToSeriesGeweke.keys()):
+            hisGeweke.quickPlot(name)
+    return fig,hisGeweke,hisForward
 
 
 def runFromConditional(ripl,assumes,observes,totalSamples,queryExps=None,
@@ -194,13 +258,63 @@ def runFromConditional(ripl,assumes,observes,totalSamples,queryExps=None,
     return nameToSeries#,ripl FIXME can't output due to pickling
 
 
-def mrRFC(mripl,*argsRFC,**kwargsRFC):
+def mrRFC(clear_mripl,*argsRFC,**kwargsRFC):
     '''RunFromConditional mapped across clear mripl with same observes.
-    *totalSamples is total per ripl in mripl'''
+    *totalSamples* is total per ripl in mripl'''
     argsRFC=argsRFC[1:] # remove *ripl* for mr_map_proc
-    list_nameToSeries = mr_map_proc(mripl,'all',runFromConditional,*argsRFC,**kwargsRFC)
+    list_nameToSeries = mr_map_proc(clear_mripl,'all',runFromConditional,*argsRFC,**kwargsRFC)
     historyForm = makeHistoryForm(list_nameToSeries)
-    return historyForm,mripl
+    return historyForm,clear_mripl
+
+def plotSnapshots(snapshots,indices=(0,-1),label='RFC',groundTruth=None):
+## FIXME add groundTruth support
+    fig,ax = plt.subplots(len(snapshots),figsize=(3,3*len(snapshots)))
+    for i,(exp,shots) in enumerate(snapshots.iteritems()):
+
+        if indices==(0,-1):
+            ax[i].hist(shots[0],bins=20,alpha=0.4,color='y',label='Prior')
+            ax[i].hist(shots[-1], bins=20, alpha=0.7, color='b',
+                       label='Last snapshot')
+        else:    
+            for ind in indices:
+                ax[i].hist(shots[ind],
+                           bins=20,alpha=0.5,label='Index %i'%ind)
+        ax[i].legend()
+        ax[i].set_title('%s snapshots: Exp=%s'%(label,exp))
+    fig.tight_layout()
+    return fig
+
+
+def plotRFC(*args,**kwargs):
+    '''Plot Markov chains (vs. groundTruth), prior and posterior snapshots.
+    Inputs: historyRFCargs, historyRFCkwargs'''
+    HistRFC,_=historyRFC(*args,**kwargs)
+    snapshots = makeSnapshots(HistRFC)
+    snapshotsFig = plotSnapshots(snapshots,indices=(0,-1),
+                                 label=HistRFC.label)
+    return snapshots,snapshotsFig
+
+
+def historyRFC(*args,**kwargs):
+    '''RunFromConditional, with mripl or ripl, make History with
+    groundTruth.
+    Input: RFCargs,RFCkwargs,mripl=None,groundTruth=None,label=RFC'''
+    mripl=kwargs.pop('mripl',None)
+    groundTruth=kwargs.pop('groundTruth',None)
+    label=kwargs.pop('label','RFC')
+    observes=args[2]
+    totalSamples=args[3]
+
+    if mripl is None:
+        historyForm=makeHistoryForm( runFromConditional(*args,**kwargs) )
+    else:
+        historyForm,_ = mrRFC(mripl,*args,**kwargs)
+        
+    HistRFC = convertHistory(historyForm,label=label,data=observes)
+    
+    if groundTruth is not None:
+        HistRFC.addGroundTruth(groundTruth,totalSamples)
+    return HistRFC,historyForm
 
 
 def multiConditionFromPrior(mripl,noDatasets,assumes,observes,totalSamples,
@@ -237,7 +351,7 @@ def mrForwardSample(mripl,ripl,assumes,observes,totalSamples,queryExps=None,
                   backend=mripl.backend, local_mode=mripl.local_mode)
     nameToSeries = makeNameToSeries(assumes,queryExps,queryAssumes)
     [mripl.assume(sym,exp) for sym,exp in assumes]
-    return {name:[ mripl.sample(name) ] for name in nameToSeries}
+    return {name:mripl.sample(name) for name in nameToSeries}
 
 
 def compareSampleDicts(dicts,labels,plot=False):
@@ -404,14 +518,17 @@ def testRFC(totalSamples,poisson=False):
 
 
 
-def quadratic_linear_obs(clear_ripl_mripl,totalSamples=100):
+def quadratic_linear_obs(clear_ripl_mripl,totalSamples=100,
+                         stepSize=10,queryExps=None):
     ripl=mk_p_ripl() 
     ripl.execute_program(simple_quadratic_model)
     [ripl.observe('(y_x %i)'%i, str(i)) for i in range(-5,5) ]
     assumes,observes = riplToAssumesObserves(ripl)
     args=(clear_ripl_mripl,assumes,observes,totalSamples)
-    kwargs={'queryExps':['w0','w1','w2','(f 0)','noise'],
-            'queryAssumes':False, 'stepSize':10, 'infer':None}
+    if queryExps is None:
+        queryExps = ['w0','w1','w2','(f 0)','noise']
+    kwargs=dict(queryExps=queryExps, queryAssumes=False, stepSize=stepSize,
+                infer=None)
     return args,kwargs
 
 

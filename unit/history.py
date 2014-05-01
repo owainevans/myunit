@@ -49,8 +49,15 @@ typically also tracked."""
         'Data are pairs (exp,datum)' 
         self.data.append(data)
 
-    def addGroundTruth(self,groundTruth):
+    def addGroundTruth(self,groundTruth,totalSamples):
+        '::{name:value},int'
         self.groundTruth = groundTruth
+        for exp,value in self.groundTruth.iteritems():
+            if isinstance(value,dict):
+                value = value['value']
+            values=[value]*totalSamples
+            self.addSeries(exp,'Ground truth',values)
+        
 
     # Returns the average over all series with the given name.
     def averageValue(self, seriesName):

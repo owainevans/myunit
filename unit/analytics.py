@@ -466,7 +466,7 @@ class Analytics(object):
         
         history = self.runFromConditional(sweeps, data=data, verbose=verbose, **kwargs)
         history.addRun(prior_run)
-        history.addGroundTruth(groundTruth)
+        history.addGroundTruth(groundTruth,sweeps)
         history.label = 'run_conditioned_from_prior'
         return history
 
@@ -497,11 +497,11 @@ class Analytics(object):
                 
         logscore = self.ripl.get_global_logscore()
         prior_run.addSeries('logscore', Series('prior', [logscore]*sweeps, hist=False))
-        for (symbol, value) in assumedValues.iteritems():
-            prior_run.addSeries(symbol, Series('prior', [parseValue(value)]*sweeps))
-        for (exp,value) in queryExpsValues.iteritems():
-            prior_run.addSeries(exp, Series('prior', [parseValue(value)]*sweeps))
-        
+        # for (symbol, value) in assumedValues.iteritems():
+        #     prior_run.addSeries(symbol, Series('prior', [parseValue(value)]*sweeps))
+        # for (exp,value) in queryExpsValues.iteritems():
+        #     prior_run.addSeries(exp, Series('prior', [parseValue(value)]*sweeps))
+        ## FIXME: if we have groundtruth, then don't need this
         
         groundTruth = (assumedValues,queryExpsValues)
 
