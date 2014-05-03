@@ -55,7 +55,7 @@ typically also tracked."""
         for exp,value in self.groundTruth.iteritems():
             if isinstance(value,dict):
                 value = value['value']
-            values=[value]*totalSamples
+            values=[value]*totalSamples # pad out with totalSamples for plotting
             self.addSeries(exp,'Ground truth',values)
         
 

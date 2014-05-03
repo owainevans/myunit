@@ -11,6 +11,10 @@ execfile('/home/owainevans/myunit/unit/history.py')
 
 
 # ASANA
+
+## GET SEED GET SEED!!!
+
+
 # [assume x (binomial 1 .00001)]
 # [observe (poisson x) 1]
 # [infer 1]
@@ -40,6 +44,15 @@ execfile('/home/owainevans/myunit/unit/history.py')
 # --can't recover fact that value we conditioned on was atom
 
 
+# # analytics vs. old unit
+# 1. why don't we get exactly same results? (what's up with seeds)
+# 2. add ability to query ripl with arbitrary function
+
+# 1. get rid of sweep notion. take string or parsed thing or procedure that takes a ripl (which
+# could implement count assumes and observes or count current number of random choices).
+# 2. scale parameter and so on can live in sweeps. 
+
+
 
 ## TODO
 # when we generate data from prior, want to store both 
@@ -60,9 +73,6 @@ execfile('/home/owainevans/myunit/unit/history.py')
 
 
 # todo:
-# 1. get rid of sweep notion. take string or parsed thing or procedure that takes a ripl (which
-# could implement count assumes and observes or count current number of random choices).
-# 2. scale parameter and so on can live in sweeps. 
 
 def directive_split(d):
     'Splits directive in list_directives form to components'
@@ -159,6 +169,28 @@ class Analytics(object):
 
     def __init__(self, ripl, assumes=None,observes=None,queryExps=None,
                  parameters=None):
+        '''Methods for analyzing and debugging inference on a model.
+
+        Arguments
+        ---------
+        ripl :: ripl (Puma or Lite)
+            Inference is done on a fresh ripl with same backend. If no
+            *assumes* are specified, assumes are extracted from ripl.
+        
+        assumes :: [(sym,exp)]
+            List of assume pairs. If not None, replace ripl assumes.
+
+        observes  :: [(exp,literal)]
+            List of observe pairs. Values are used by *runFromConditional* as
+            data. Expressions are used by *geweke* and *runConditionedFromPrior*.
+
+        queryExps :: [exp]
+            List of expressions which are evaluated and recorded at every sweep
+            of inference (in addition to symbols in assumes).
+
+        parameters :: {string: a}
+            FIXME explain'''
+ 
         assert not(assumes is None and observes is not None),'No *observes* without *assumes*.'
 
         self.ripl = ripl
@@ -187,16 +219,22 @@ class Analytics(object):
             self.ripl.set_seed(self.parameters['venture_random_seed'])
 
 
-    def updateObserves(self,newObserves=[],removeAllObserves=None):
+    def updateObserves(self,newObserves=None,removeAllObserves=False):
+        '''Extend list of observes or empty it.
+           Input: newObserves :: [(exp,literal)], removeAllObserves :: bool.'''
         if removeAllObserves:
             self.observes = []
-        self.observes.extend(newObserves)
+        if newObserves is not None:
+            self.observes.extend( newObserves )
         #self.observes.extend( map(directive_split,newObserves) )
         
-    def updateQueryExps(self,newQueryExps=[],removeAllQueryExps=None):
+    def updateQueryExps(self,newQueryExps=None,removeAllQueryExps=False):
+        '''Extend list of query expressions or empty it.
+           Input: newQueryExps :: [(exp)], removeAllQueryExps :: bool.'''
         if removeAllQueryExps:
             self.queryExps = []
-        self.queryExps.extend( newQueryExps )
+        if newQueryExps is not None:
+            self.queryExps.extend( newQueryExps )
     
 
     def _loadAssumes(self, prune=True):
@@ -262,12 +300,12 @@ class Analytics(object):
         return (assumeToDirective, predictToDirective)
 
     # Updates recorded values after an iteration of the ripl.
-    def updateValues(self, keyedValues, keyToDirective):
+    def updateValues(self, keyedValues, keyToDirective=None):
         for (key, values) in keyedValues.items():
 
-            ##FIXME, hack
-            if keyToDirective=='query':
+            if keyToDirective is None: # queryExps are sampled and have no dids
                 value = self.ripl.sample(key,type=True)
+                #value = f(self.ripl) --add ability to query with function
             else:
                 if key not in keyToDirective: # we aren't interested in this series
                     del keyedValues[key]
@@ -307,9 +345,9 @@ class Analytics(object):
 
             logscores.append(self.ripl.get_global_logscore())
 
-            self.updateValues(assumedValues, assumeToDirective)
-            self.updateValues(predictedValues, predictToDirective)
-            self.updateValues(queryExpsValues, 'query')
+            self.updateValues(assumedValues,keyToDirective=assumeToDirective)
+            self.updateValues(predictedValues,keyToDirective=predictToDirective)
+            self.updateValues(queryExpsValues, keyToDirective=None)
 
         tag = 'sample_from_joint' if name is None else name + '_sample_from_joint'
         history = History(tag, self.parameters)
@@ -320,11 +358,11 @@ class Analytics(object):
             history.addSeries(symbol, 'i.i.d.', map(parseValue, values))
 
         for (index, values) in predictedValues.iteritems():
-            history.addSeries(self.nameObserve(index), 'i.i.d.', map(parseValue, values))
+            history.addSeries(self.nameObserve(index), 'i.i.d.',
+                              map(parseValue, values))
 
         for (exp, values) in queryExpsValues.iteritems():
             history.addSeries(exp, 'i.i.d.', map(parseValue, values))
-
 
         return history
 
@@ -389,7 +427,6 @@ class Analytics(object):
 
         assumedValues = {symbol : [] for symbol in assumeToDirective}
         predictedValues = {index: [] for index in predictToDirective}
-        
         queryExpsValues = {exp: [] for exp in self.queryExps}
 
         sweepTimes = []
@@ -409,11 +446,9 @@ class Analytics(object):
             sweepIters.append(iterations)
             logscores.append(self.ripl.get_global_logscore())
 
-            self.updateValues(assumedValues, assumeToDirective)
-            self.updateValues(predictedValues, predictToDirective)
-            self.updateValues(queryExpsValues, 'query')
-
-
+            self.updateValues(assumedValues,keyToDirective=assumeToDirective)
+            self.updateValues(predictedValues,keyToDirective=predictToDirective)
+            self.updateValues(queryExpsValues,keyToDirective=None)
             
         answer.addSeries('sweep time (s)', Series(label, sweepTimes))
         answer.addSeries('sweep_iters', Series(label, sweepIters))
@@ -423,7 +458,8 @@ class Analytics(object):
             answer.addSeries(symbol, Series(label, map(parseValue, values)))
 
         for (index, values) in predictedValues.iteritems():
-            answer.addSeries(self.nameObserve(index), Series(label, map(parseValue, values)))
+            answer.addSeries(self.nameObserve(index),
+                             Series(label, map(parseValue, values)))
 
         for (exp, values) in queryExpsValues.iteritems():
             answer.addSeries(exp, Series(label, map(parseValue, values)))
@@ -431,23 +467,49 @@ class Analytics(object):
         return answer
 
 
-    # Runs inference on the model conditioned on observed data.
-    # By default the data is as given in makeObserves(parameters).
-    def runFromConditional(self, sweeps, name=None,data=None, **kwargs):
+    def runFromConditional(self, sweeps, name=None, data=None, **kwargs):
+        '''Runs inference on the model conditioned on data.
+           By default data is values of self.observes.
+
+           Arguments
+           ---------
+           sweeps :: int
+               Total number of iterations of inference program. Values are
+               recorded after every sweep.
+           runs :: int
+               Number of parallel chains for inference. Default is 3.
+           infer :: string | function on ripl
+               Inference program
+           name :: string
+               Label this particular set of runs. Added to history and plots.
+           data :: [values]
+               List of values that replace values in self.observes for this
+               inference run only.
+           verbose :: bool
+               Print when initiating runs and sweeps.
+
+           Returns
+           -------
+           history :: History
+               history.History with nameToSeries dictionary of runs*Series
+               for each recorded expression.
+           ripl :: ripl
+               Ripl with same backend as given to constructor, mutated by
+               assumes,observes (with values given by data) and inference.'''
+
         tag = 'run_from_conditional' if name is None else name + '_run_from_conditional'
         
         history = self._runRepeatedly(self.runFromConditionalOnce,
                                       tag, data=data, sweeps=sweeps, **kwargs)
 
-        if data:
+        if data is not None: # data specified by user or by other method
             ## FIXME this branch has types, other one doesn't
-            # FIXME: maybe data should carry around exp from its inception
             data = [(exp,datum) for (exp,_),datum in zip(self.observes,data)]
         else:
             data = self.observes
         history.addData(data)
 
-        return history
+        return history,self.ripl
   
     def runFromConditionalOnce(self, data=None, **kwargs):
         self.ripl.clear()
@@ -504,7 +566,7 @@ class Analytics(object):
 
         (assumeToDirective, predictToDirective) = self.loadModelWithPredicts(prune=False)
 
-        data = [self.ripl.report(predictToDirective[index], type=True) for index in range(len(self.observes))]
+        data = [self.ripl.report(predictToDirective[index],type=True) for index in range(len(self.observes))]
 
         prior_run = Run('run_conditioned_from_prior', self.parameters)
         assumedValues = {}
@@ -513,7 +575,6 @@ class Analytics(object):
             if record(value):
                 assumedValues[symbol] = value
         
-        ## FIXME reduce repetition
         queryExpsValues = {}
         for exp in self.queryExps:
             value = self.ripl.sample(exp,type=True)
@@ -521,14 +582,11 @@ class Analytics(object):
                 queryExpsValues[exp] = value
                 
         logscore = self.ripl.get_global_logscore()
-        prior_run.addSeries('logscore', Series('prior', [logscore]*sweeps, hist=False))
-        # for (symbol, value) in assumedValues.iteritems():
-        #     prior_run.addSeries(symbol, Series('prior', [parseValue(value)]*sweeps))
-        # for (exp,value) in queryExpsValues.iteritems():
-        #     prior_run.addSeries(exp, Series('prior', [parseValue(value)]*sweeps))
-        ## FIXME: if we have groundtruth, then don't need this
+        prior_run.addSeries('logscore', Series('prior',
+                                               [logscore]*sweeps, hist=False))
         
-        groundTruth = (assumedValues,queryExpsValues)
+        groundTruth = assumedValues.copy() # store groundTruth as {exp:value}
+        groundTruth.update(queryExpsValues.copy())
 
         return (data, prior_run, groundTruth)
 
