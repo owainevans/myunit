@@ -9,6 +9,38 @@ from history import History, Run, Series
 ## FIXME eliminatino
 execfile('/home/owainevans/myunit/unit/history.py')
 
+
+# ASANA
+# [assume x (binomial 1 .00001)]
+# [observe (poisson x) 1]
+# [infer 1]
+# --core dump in puma
+
+# v.assume('dir_mult','(make_dir_mult (array 1 1))')
+# == 'unknown'
+# -- should be something like (see sym_dir_mult value)
+# {'simplex': [1.0,1.0], 'counts': [0, 0],  'type': 'dir_mult'}
+
+
+# v.assume('sym_dir','(make_sym_dir_mult 1 2)')
+# v.observe('(sym_dir)','atom<0>')
+# v.list_directives()[-1]
+# {'directive_id': 17,
+#  'expression': ['s'],
+#  'instruction': 'observe',
+#  'value': 0.0}
+
+# v.assume('atom_or_num','(lambda ()(if (flip theta) atom<0> 0))')
+# v.observe('(atom_or_num)','0')
+# v.infer(1)
+# RuntimeError: Cannot constrain a deterministic value.
+# --not sure if there's a way to observe an atom noisily. want sp
+#   where input and output are atoms. 
+
+# --can't recover fact that value we conditioned on was atom
+
+
+
 ## TODO
 # when we generate data from prior, want to store both 
 # the data, all assumes symbols and all query_exps. (and if we plot it, it should be 
@@ -20,12 +52,6 @@ execfile('/home/owainevans/myunit/unit/history.py')
 # for mripl, need good snaphshot overtime plots (bayesDB?)
 
 # add method for viewing observes and expressions.
-# write quickAnalytics for ip_para. fixing seeds, should
-# be able to compare when everything made det.
-# check for predict/forget vs. sample 
-# cook/rubin trivial if we have test#2. just throw true
-# expression vals into samples, sort for quantile. then
-# plot all quantile vals vs. uniform. 
 
 # plots: can't plot 100 runs. need to select some. should 
 # if you have enough runs (so variance in your estimates
@@ -37,7 +63,6 @@ execfile('/home/owainevans/myunit/unit/history.py')
 # 1. get rid of sweep notion. take string or parsed thing or procedure that takes a ripl (which
 # could implement count assumes and observes or count current number of random choices).
 # 2. scale parameter and so on can live in sweeps. 
-
 
 def directive_split(d):
     'Splits directive in list_directives form to components'
@@ -101,7 +126,7 @@ class VentureUnit(object):
         self.observes = []
         self.makeObserves()
         
-        self.analyticsArgs = self.ripl
+        self.analyticsArgs = (self.ripl,)
         self.analyticsKwargs = dict(assumes=self.assumes, observes=self.observes,
                            parameters=self.parameters)
 
@@ -428,7 +453,7 @@ class Analytics(object):
         self.ripl.clear()
         assumeToDirective = self._loadAssumes()
         self._loadObserves(data)
-
+##FIXME remove print
         print 'runFCO data:', data
         
         # note: we loadObserves, but predictToDirective arg = {}
@@ -525,6 +550,9 @@ class Analytics(object):
             for inferredSeries in seriesList:
                 sampledSeries = sampledHistory.nameToSeries[name][0]
 
+# KL between all fwd samples and inferredSeries samples up to index
+# why not combine inferred series into snapshots?
+## FIXME: note that currently one of runs is not appearing
                 klValues = [computeKL(sampledSeries.values, inferredSeries.values[:index+1]) for index in range(sweeps)]
 
                 klHistory.addSeries('KL_' + name, inferredSeries.label, klValues, hist=False)

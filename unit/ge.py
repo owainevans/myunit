@@ -7,6 +7,10 @@ import time
 from history import *
 
 ############### TODO LISTE
+# push the new incarnation of unit (analytics) and see if it passes
+# write tests to compare geweke and inference in unit
+
+
 
 # have functions work with ripls they output
 # do we want to have a mode for continuing inference in the same harness? maybe we should 
@@ -57,7 +61,7 @@ def qq_plot_all(dict1,dict2,label1,label2):
         s1,s2 = (dict1[exp],dict2[exp])
         assert len(s1)==len(s2)
 
-        ax[i,0].hist(s1,bins=20,alpha=0.7,color='b',label=label1)
+        ax[i,0].hist(s1,bins=20,alpha=0.7,color='r',label=label1)
         ax[i,0].hist(s2,bins=20,alpha=0.4,color='y',label=label2)
         ax[i,0].legend()
         ax[i,0].set_title('Hists: %s'%exp)
@@ -73,20 +77,31 @@ def qq_plot_all(dict1,dict2,label1,label2):
     fig.tight_layout()
     return fig
 
+def filterScalar(dct):
+    'Remove non-scalars from {exp:values}'
+    scalar=lambda x:isinstance(x,(float,int))
+    scalarDct={}
+    for exp,values in dct.items():
+        if all(map(scalar,values)):
+            scalarDct[exp]=values
+    return scalarDct
 
 def compareSampleDicts(dicts_hists,labels,plot=False):
-    ## FIXME groundTruth
+    ## FIXME need to remove groundTruth from history before compare
     if isinstance(dicts_hists[0],History):
         dicts = []
         for history in dicts_hists:
             dicts.append( historyNameToValues(history,flatten=True) )
     else:
         dicts = dicts_hists
+
+    dicts = map(filterScalar,dicts)
         
     stats = (np.mean,np.median,np.std,len)
     stats_dict = {}
     print 'compareSampleDicts: %s vs. %s \n'%(labels[0],labels[1])
-    for exp,_ in dicts[0].iteritems():
+    
+    for exp in dicts[0].keys():
         stats_dict[exp] = []
         for dict_i,label_i in zip(dicts,labels):
             samples=dict_i[exp]
@@ -209,7 +224,8 @@ def geweke(ripl,assumes,observes,totalSamples,queryExps=None,
     
     if stepSize is None:
         stepSize = defaultSweep(assumes) # rough version of sweep
-
+        
+    ripl=makeClearRipl(ripl)
     [ripl.assume(sym,exp) for sym,exp in assumes]
     
     if len(observes[0])==2: # not observes=[exp1,...,]
@@ -252,9 +268,10 @@ def compareGeweke(plots,*args,**kwargs):
                                                 (hisForward.label,hisForward)])
    
     if plots:
-        for name in histOver.nameToSeries.keys():
+        for name in stats_dict.keys(): # filter non-scalars
             histOver.quickPlot(name)
     return fig,histOver
+
 
 
 def runFromConditional(ripl,assumes,observes,totalSamples,queryExps=None,
@@ -295,17 +312,21 @@ def runFromConditional(ripl,assumes,observes,totalSamples,queryExps=None,
     return nameToSeries#,ripl FIXME can't output due to pickling
 
 
-def mrRFC(clear_mripl,*argsRFC,**kwargsRFC):
-    '''RunFromConditional mapped across clear mripl with same observes.
-    *totalSamples* is total per ripl in mripl'''
+def mrRFC(mripl,*argsRFC,**kwargsRFC):
+    '''RunFromConditional mapped across mripl with same observes.
+    *totalSamples* is total per ripl in mripl. Input mripl is not
+    mutated. A new mripl with same attributes is created, mutated
+    by inference and output.'''
     argsRFC=argsRFC[1:] # remove *ripl* for mr_map_proc
-    clear_mripl=makeClearRipl(clear_mripl)
-    list_nameToSeries = mr_map_proc(clear_mripl,'all',runFromConditional,*argsRFC,**kwargsRFC)
+    newMripl=makeClearRipl(mripl)
+    list_nameToSeries = mr_map_proc(newMripl,'all',runFromConditional,*argsRFC,**kwargsRFC)
     historyForm = makeHistoryForm(list_nameToSeries)
-    return historyForm,clear_mripl #mripl NOT clear after mr_map_proc
+    return historyForm,newMripl 
 
 
 def plotSnapshots(snapshots,indices=(0,-1),label='RFC',groundTruth=None):
+    '''Inputs: snapshots={name:[snapshot0,...],..}. Indices are for
+    snapshot lst'''
 ## FIXME add groundTruth support
     fig,ax = plt.subplots(len(snapshots),figsize=(3,3*len(snapshots)))
     for i,(exp,shots) in enumerate(snapshots.iteritems()):
@@ -333,7 +354,16 @@ def plotRFC(*args,**kwargs):
                                  label=HistRFC.label)
     for name in HistRFC.nameToSeries.keys():
         HistRFC.quickPlot(name)
-    return snapshots,snapshotsFig,outMRipl
+
+    # compare middle and last snapshots (convergence check)
+    midPoint = int(.5 * len(snapshots.values()[0]) )
+    middle = {exp:shots[midPoint] for exp,shots in snapshots.items()}
+    last = {exp:shots[-1] for exp,shots in snapshots.items()}
+    
+    compareOuts=compareSampleDicts([middle,last],
+                                   ['Middle Snapshot','Last Snapshot'],
+                                   plot=True)
+    return snapshots,snapshotsFig,outMRipl,compareOuts
 
 
 def historyRFC(*args,**kwargs):
@@ -553,6 +583,42 @@ def testRFC(totalSamples,poisson=False):
 
     return nameToSeries,history
 
+
+from lda_files.lda_utils import *
+def ulda(clear_ripl_mripl,totalSamples=100,stepSize=100,queryExps=None):
+
+    gen_params={'true_no_topics':4, 'size_vocab':10,
+                'no_docs':5, 'doc_length':20, 
+                'alpha_t_prior':'(gamma .2 1)',
+                'alpha_w_prior':'(gamma .2 1)'}
+    generate_docs_out = generate_docs(gen_params)
+    print_summary(generate_docs_out)
+
+    # ripl with model and docs as observes
+    v=mk_p_ripl()
+    v.execute_program(mk_lda(gen_params,collapse=True))
+
+    atomObserves=[] # problem of atoms being removed from python list_dir
+    for doc_ind,doc in enumerate(generate_docs_out['data_docs']):
+        for word_ind in range(len(doc)):
+            exp='(word atom<%i> %i)'%(doc_ind,word_ind)
+            val='atom<%i>'%doc[word_ind]
+            v.observe(exp,val)
+            atomObserves.append( (exp,val) )
+                
+    assumes,observes = riplToAssumesObserves(v)
+    observes = atomObserves
+    args=(clear_ripl_mripl,assumes,observes,totalSamples)
+    if queryExps is None:
+        dl = gen_params['doc_length']
+        st_lst=['(word atom<0> %i)'%i for i in range(dl,dl+20)]
+        exp = '(list %s )'% ' '.join(st_lst)
+        queryExps = ['alpha_t','alpha_w', exp]
+        
+    kwargs=dict(queryExps=queryExps, queryAssumes=False, stepSize=stepSize,
+                infer=None)
+
+    return args,kwargs
 
 
 def quadratic_linear_obs(clear_ripl_mripl,totalSamples=100,
