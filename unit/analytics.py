@@ -2,56 +2,22 @@ import time
 import random
 import numpy as np
 from venture.ripl.ripl import _strip_types
-from venture.venturemagics.ip_parallel import *
+from venture.venturemagics.ip_parallel import build_exp,mk_p_ripl,mk_l_ripl
 from venture.shortcuts import make_puma_church_prime_ripl
 from history import History, Run, Series
+from utils import *
 
 ## FIXME eliminatino
 execfile('/home/owainevans/myunit/unit/history.py')
 
-
-# ASANA
-
-## GET SEED GET SEED!!!
-
-
-# [assume x (binomial 1 .00001)]
-# [observe (poisson x) 1]
-# [infer 1]
-# --core dump in puma
-
-# v.assume('dir_mult','(make_dir_mult (array 1 1))')
-# == 'unknown'
-# -- should be something like (see sym_dir_mult value)
-# {'simplex': [1.0,1.0], 'counts': [0, 0],  'type': 'dir_mult'}
-
-
-# v.assume('sym_dir','(make_sym_dir_mult 1 2)')
-# v.observe('(sym_dir)','atom<0>')
-# v.list_directives()[-1]
-# {'directive_id': 17,
-#  'expression': ['s'],
-#  'instruction': 'observe',
-#  'value': 0.0}
-
-# v.assume('atom_or_num','(lambda ()(if (flip theta) atom<0> 0))')
-# v.observe('(atom_or_num)','0')
-# v.infer(1)
-# RuntimeError: Cannot constrain a deterministic value.
-# --not sure if there's a way to observe an atom noisily. want sp
-#   where input and output are atoms. 
-
-# --can't recover fact that value we conditioned on was atom
-
-
 # # analytics vs. old unit
 # 1. why don't we get exactly same results? (what's up with seeds)
 # 2. add ability to query ripl with arbitrary function
+# 3. add queryAssumes
 
 # 1. get rid of sweep notion. take string or parsed thing or procedure that takes a ripl (which
 # could implement count assumes and observes or count current number of random choices).
-# 2. scale parameter and so on can live in sweeps. 
-
+# 2. scale parameter and so on can live in 
 
 
 ## TODO
@@ -75,7 +41,7 @@ execfile('/home/owainevans/myunit/unit/history.py')
 # todo:
 
 def directive_split(d):
-    'Splits directive in list_directives form to components'
+    'Splits directive from *list_directives* into components'
     ## FIXME: replace symbols, calls build_exp from ip_para
     if d['instruction']=='assume':
         return (d['symbol'], build_exp(d['expression']) ) 
@@ -83,9 +49,9 @@ def directive_split(d):
         return (build_exp(d['expression']), d['value']) 
     elif d['instruction']=='predict':
         return build_exp(d['expression'])
-
-# whether to record a value returned from the ripl
+        
 def record(value):
+    'Return ripl value if type is in approved list. SPs are not returned.'
     return value['type'] in {'boolean', 'real', 'number', 'atom', 'count', 'array', 'simplex'}
 
 parseValue = _strip_types
@@ -194,6 +160,7 @@ class Analytics(object):
         assert not(assumes is None and observes is not None),'No *observes* without *assumes*.'
 
         self.ripl = ripl
+        self.backend = self.ripl.backend()
         directives_list = self.ripl.list_directives()
         
         if assumes is not None:
@@ -235,13 +202,19 @@ class Analytics(object):
             self.queryExps = []
         if newQueryExps is not None:
             self.queryExps.extend( newQueryExps )
+
+    def _clearRipl(self):
+        if self.backend=='lite':
+            self.ripl=mk_l_ripl()
+            self.ripl.set_seed(self.parameters['venture_random_seed'])
+        else:
+            self.ripl.clear()
     
 
     def _loadAssumes(self, prune=True):
         
         assumeToDirective = {}
-        # since we extracted from ripl, exception would only
-        # be caused by bug in extraction or run-time type error
+
         for (symbol, expression) in self.assumes:
             from venture.exception import VentureException
             try:
@@ -292,7 +265,8 @@ class Analytics(object):
     # Prunes non-scalar values, unless prune=False.
     # Does not reset engine RNG.
     def loadModelWithPredicts(self, track=-1, prune=True):
-        self.ripl.clear()
+        #self.ripl.clear()
+        self._clearRipl()
 
         assumeToDirective = self._loadAssumes(prune=prune)
         predictToDirective = self._loadObservesAsPredicts(track=track, prune=prune)
@@ -313,6 +287,7 @@ class Analytics(object):
 
                 value = self.ripl.report(keyToDirective[key], type=True)
                 
+## FIXME: better to record all values and do this type checking before plotting
             if len(values) > 0:
                 if value['type'] == values[0]['type']:
                     values.append(value)
@@ -342,17 +317,40 @@ class Analytics(object):
                 print "Generating sample " + str(i) + " of " + str(samples)
 
             (assumeToDirective, predictToDirective) = self.loadModelWithPredicts(track)
-
+            # loadModelWith... clears the ripl, adds assumes and then observes
+            # as predicts.
             logscores.append(self.ripl.get_global_logscore())
+            print 'sampleFromJoint, sample %i, logscore %s'%(i,str(logscores))
+            print 'get logscore',self.ripl.get_global_logscore()
+            print 'val symbol 0', self.ripl.sample(assumedValues.keys()[0])
 
             self.updateValues(assumedValues,keyToDirective=assumeToDirective)
             self.updateValues(predictedValues,keyToDirective=predictToDirective)
             self.updateValues(queryExpsValues, keyToDirective=None)
 
+        #alt:
+        # mk_ripl=mk_p_ripl if self.backend=='puma' else mk_l_ripl
+        # rangeAssumes=range(len(self.assumes))
+        # rangePredicts=range(len(self.assumes),len(self.assumes)+len(self.observes))
+
+        # for i in range(sample):
+        #     v.mk_ripl()
+        #     v.set_seed(i)
+        #     [v.assume(sym,exp) for sym,exp in self.assumes]
+        #     [v.predict(exp) for exp,lit in self.observes]
+    
+        # aV={sym:[v.report(j) for j in rangeAssumes] for sym,_ in self.assumes}
+        # pV={exp:[v.report(j) for j in rangePredicts] for exp,_ in self.observes}
+        # qVals={exp: [v.sample(exp) for 
+
+        # [v.set_seed(i) for i in range(samples)]
+        
+
         tag = 'sample_from_joint' if name is None else name + '_sample_from_joint'
         history = History(tag, self.parameters)
 
         history.addSeries('logscore', 'i.i.d.', logscores)
+        
 
         for (symbol, values) in assumedValues.iteritems():
             history.addSeries(symbol, 'i.i.d.', map(parseValue, values))
@@ -477,11 +475,11 @@ class Analytics(object):
                Total number of iterations of inference program. Values are
                recorded after every sweep.
            runs :: int
-               Number of parallel chains for inference. Default is 3.
+               Number of parallel chains for inference. Default=3.
            infer :: string | function on ripl
-               Inference program
+               Inference program.
            name :: string
-               Label this particular set of runs. Added to history and plots.
+               Label this set of runs for output History and plots.
            data :: [values]
                List of values that replace values in self.observes for this
                inference run only.
@@ -494,35 +492,37 @@ class Analytics(object):
                history.History with nameToSeries dictionary of runs*Series
                for each recorded expression.
            ripl :: ripl
-               Ripl with same backend as given to constructor, mutated by
-               assumes,observes (with values given by data) and inference.'''
+               Pointer to self.ripl, i.e. a ripl with same backend as given to
+               constructor, mutated by assumes,observes (with values given by
+               data) and inference. If runs>1, it's ripl after last run.'''
 
         tag = 'run_from_conditional' if name is None else name + '_run_from_conditional'
         
         history = self._runRepeatedly(self.runFromConditionalOnce,
                                       tag, data=data, sweeps=sweeps, **kwargs)
 
-        if data is not None: # data specified by user or by other method
-            ## FIXME this branch has types, other one doesn't
+        if data is not None: # data specified by user or by other Analytics methods
+            ## FIXME: data have types if we call from conditionedFromPrior
+            # but not if user calls. Does this lead to any problems?
             data = [(exp,datum) for (exp,_),datum in zip(self.observes,data)]
         else:
             data = self.observes
         history.addData(data)
 
-        return history,self.ripl
+        return history, self.ripl
   
+
     def runFromConditionalOnce(self, data=None, **kwargs):
-        self.ripl.clear()
+        self._clearRipl()
         assumeToDirective = self._loadAssumes()
         self._loadObserves(data)
-##FIXME remove print
-        print 'runFCO data:', data
         
         # note: we loadObserves, but predictToDirective arg = {}
         # so we are not collecting sample of the observes here. 
         return self._collectSamples(assumeToDirective, {}, **kwargs)
 
     
+
     def testFromPrior(self,no_datasets,sweeps,verbose=False,**kwargs):
         # we don't need sweeps for generateDataFromPrior, because
         # sweeps are given just for plotting the data on time series
@@ -548,14 +548,15 @@ class Analytics(object):
 
     # Run inference conditioned on data generated from the prior.
     def runConditionedFromPrior(self, sweeps, verbose=False, **kwargs):
+        ## FIXME: add docstring describing groundtruth and outputting ripl.
         
         (data, prior_run, groundTruth) = self.generateDataFromPrior(sweeps, verbose=verbose)
-        
-        history = self.runFromConditional(sweeps, data=data, verbose=verbose, **kwargs)
+        # runFromConditional passes self.ripl
+        history,_ = self.runFromConditional(sweeps, data=data, verbose=verbose, **kwargs)
         history.addRun(prior_run)
         history.addGroundTruth(groundTruth,sweeps)
         history.label = 'run_conditioned_from_prior'
-        return history
+        return history, self.ripl
 
     # The "sweeps" argument specifies the number of times to repeat
     # the values collected from the prior, so that they are parallel
@@ -697,11 +698,6 @@ def computeKL(reference, approx, numbins=20):
         kl += math.log(p/q) * p * (mx-mn) / numbins
 
     return kl
-
-
-
-
-
 
 
 
