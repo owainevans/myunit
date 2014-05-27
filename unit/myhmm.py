@@ -118,7 +118,7 @@ def runInferProgs():
     history,ripl = model.runFromConditional(sweeps, runs=runs, infer=inferProg,
                                             name=inferProg)
     histories.append(history)
-  return histories
+    return histories
 
 histories = runInferProgs()
 histories[3].quickHistogram('(get_state 0)')
@@ -136,9 +136,9 @@ def runFromJointDiagnostic(inferProgs,sweeps=100):
   hists = []
   for inferProg in inferProgs:
     hists.append(model.runFromJoint( sweeps, runs=1,
-                                    infer=inferProg,name=inferProg))
-  hists.append(model.sampleFromJoint(sweeps))
-  return hists
+                                     infer=inferProg,name=inferProg))
+    hists.append(model.sampleFromJoint(sweeps))
+    return hists
 
 
 fromJointHistories = runFromJointDiagnostic((inferProgs[0],inferProgs[3]), sweeps=200)
@@ -188,7 +188,7 @@ noDatasets=5
 datasetToHistory,fig = testFromPrior(noDatasets,sweeps=10)
 testFromPairs = zip( map(str,range(noDatasets)), datasetToHistory)
 testFromPriorOV = historyOverlay('testFromPrior',testFromPairs[:5])
-                              
+
 
 # want to actually see how good the second mode is? we can force and 
 # look at logscore. but with enough particles, we should get it.
@@ -246,7 +246,7 @@ def test2(noDatasets=2):
 
 
 #historyOverlay('Geweke vs. Forward', [(hisGeweke.label,hisGeweke),
-        #                                        (hisForward.label,hisForward)])
+#                                        (hisForward.label,hisForward)])
 
 
 # on the x^2 version with N(0,1) init

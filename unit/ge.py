@@ -49,33 +49,41 @@ from history import *
 
 
 
-def qq_plot_all(dict1,dict2,label1,label2):
-    ## http://people.reed.edu/~jones/Courses/P14.pdf
-    # FIXME do interpolation where samples mismatched
-    assert len(dict1)==len(dict2)
-    no_exps = len(dict1)
-    subplot_rows = max(no_exps,2)
-    fig,ax = plt.subplots(subplot_rows,2,figsize=(8.5,3*no_exps))
+def qqPlotAll(dicts,labels):
     
-    for i,exp in enumerate(dict1.keys()):
-        s1,s2 = (dict1[exp],dict2[exp])
+    # FIXME do interpolation where samples mismatched
+    assert len(dicts[0])==len(dicts[1])
+    numExps = len(dicts[0])
+    fig,ax = plt.subplots(numExps,2,figsize=(12,4*numExps))
+    
+    for i,exp in enumerate(dicts[0].keys()):
+        s1,s2 = (dicts[0][exp],dicts[1][exp])
         assert len(s1)==len(s2)
 
-        ax[i,0].hist(s1,bins=20,alpha=0.7,color='r',label=label1)
-        ax[i,0].hist(s2,bins=20,alpha=0.4,color='y',label=label2)
-        ax[i,0].legend()
-        ax[i,0].set_title('Hists: %s'%exp)
+        def makeHists(ax):
+            ax.hist(s1,bins=20,alpha=0.7,color='r',label=labels[0])
+            ax.hist(s2,bins=20,alpha=0.4,color='y',label=labels[1])
+            ax.legend()
+            ax.set_title('Histogram: %s'%exp)
 
-        ax[i,1].scatter(sorted(s1),sorted(s2),s=4,lw=0)
-        ax[i,1].set_xlabel(label1)
-        ax[i,1].set_ylabel(label2)
-        ax[i,1].set_title('QQ Plot %s'%exp)
-
-        xr = np.linspace(min(s1),max(s1),30)
-        ax[i,1].plot(xr,xr)
+        def makeQQ(ax):
+            ax.scatter(sorted(s1),sorted(s2),s=4,lw=0)
+            ax.set_xlabel(labels[0])
+            ax.set_ylabel(labels[1])
+            ax.set_title('QQ Plot %s'%exp)
+            xr = np.linspace(min(s1),max(s1),30)
+            ax.plot(xr,xr)
+            
+        if numExps==1:
+            makeHists(ax[0])
+            makeQQ(ax[1])
+        else:
+            makeHists(ax[i,0])
+            makeQQ(ax[i,1])
 
     fig.tight_layout()
     return fig
+
 
 def filterScalar(dct):
     'Remove non-scalars from {exp:values}'
@@ -87,17 +95,18 @@ def filterScalar(dct):
     return scalarDct
 
 def compareSampleDicts(dicts_hists,labels,plot=False):
-    ## FIXME need to remove groundTruth from history before compare
-    if isinstance(dicts_hists[0],History):
-        dicts = []
-        for history in dicts_hists:
-            dicts.append( historyNameToValues(history,flatten=True) )
+    '''Input: dicts_hists :: ({exp:values}) | (History)
+     where the first Series in History is used as values. History's are
+     converted to dicts.''' 
+
+    if not isinstance(dicts_hists[0],dict):
+        dicts = [historyNameToValues(h,seriesInd=0) for h in dicts_hists]
     else:
         dicts = dicts_hists
-
-    dicts = map(filterScalar,dicts)
         
-    stats = (np.mean,np.median,np.std,len)
+    dicts = map(filterScalar,dicts) # could skip for Analytics
+        
+    stats = (np.mean,np.median,np.std,len) # FIXME stderr
     stats_dict = {}
     print 'compareSampleDicts: %s vs. %s \n'%(labels[0],labels[1])
     
@@ -107,21 +116,20 @@ def compareSampleDicts(dicts_hists,labels,plot=False):
             samples=dict_i[exp]
             s_stats = tuple([s(samples) for s in stats])
             stats_dict[exp].append(s_stats)
-            print 'Dict: %s. Exp: %s'%(label_i,exp)
+            print '\nDict: %s. Exp: %s'%(label_i,exp)
             print 'Mean, median, std, N = %.3f  %.3f  %.3f  %i'%s_stats
 
         testResult=reportSameContinuous(dicts[0][exp],dicts[1][exp])
         print 'KS SameContinuous:', '  '.join(testResult.report.split('\n')[-2:])
         stats_dict[exp].append( testResult )
-        print '\n'
-
-    fig = qq_plot_all(dicts[0],dicts[1],labels[0],labels[1]) if plot else None
+        
+    fig = qqPlotAll(dicts,labels) if plot else None
     
     return stats_dict,fig
 
 
 ##### HISTORY UTILS
-def historyNameToValues(history,flatten=False):
+def historyNameToValues(history,seriesInd=0,flatten=False):
     ''':: History -> {name:values}. Default is to take first series.
     If flatten then we combine all.'''
     nameToValues={}
@@ -129,9 +137,10 @@ def historyNameToValues(history,flatten=False):
         if flatten:
             values = [el for series in listSeries for el in series.values]
         else:
-            values = listSeries[0].values
+            values = listSeries[seriesInd].values
         nameToValues[name]=values
     return nameToValues
+
 
 def convertHistory(nameToSeries,label='convertHistory',data=None):
     'Takes {name:[series_vals0,series_vals1,...]} and creates history.History'
@@ -523,7 +532,7 @@ def testGeweke(totalSamples = 400, plot=False,
         if poisson:
             dict2={'mu':np.random.poisson(30,totalSamples)}
             label2='np.random.poisson(30)'
-        qq_plot_all(nameToSeries,dict2,'Geweke',label2)
+        qqPlotAll((nameToSeries,dict2),('Geweke',label2))
         plt.figure()
         probplot(nameToSeries['mu'],dist='norm',plot=plt)
         plt.show()
